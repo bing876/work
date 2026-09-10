@@ -1,6 +1,6 @@
 // 登录小卡片:左表单(手机验证码/坐标号双入口)+右插画。登录成功直接进工作台,全站只有这两个界面。
 import { useEffect, useState } from 'react';
-import { fetchMe, loginId, loginPhone, requestCode, saveToken, setPassword } from '../client/auth';
+import { loginAccount, loginPhone, requestCode, saveToken } from '../client/auth';
 import loginArt from '../assets/login-art.jpg';
 
 type Mode = 'phone' | 'id';
@@ -9,14 +9,13 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
   const [mode, setMode] = useState<Mode>('phone');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
-  const [coordinateId, setCoordinateId] = useState('');
-  const [password, setPasswordInput] = useState('');
+  const [accountPhone, setAccountPhone] = useState('');
+  const [accountCode, setAccountCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  // 新注册且未设密码:第二步展示坐标号+设密码
+  // 新注册:第二步展示坐标号(即登录密码)
   const [fresh, setFresh] = useState<{ token: string; coordinateId: string } | null>(null);
-  const [newPassword, setNewPassword] = useState('');
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -50,7 +49,7 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
     setBusy(true);
     try {
       const res = await loginPhone(phone, code);
-      if (res.registered && res.needPassword) {
+      if (res.registered) {
         setFresh({ token: res.token, coordinateId: res.user.coordinateId });
         setBusy(false);
         return;
@@ -67,7 +66,7 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
     setError(null);
     setBusy(true);
     try {
-      const res = await loginId(coordinateId, password);
+      const res = await loginAccount(accountPhone, accountCode);
       saveToken(res.token);
       onAuthed();
     } catch (e) {
@@ -75,20 +74,7 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
     }
   };
 
-  const submitPassword = async () => {
-    if (!fresh || busy) return;
-    setError(null);
-    setBusy(true);
-    try {
-      await setPassword(newPassword, fresh.token);
-      saveToken(fresh.token);
-      onAuthed();
-    } catch (e) {
-      fail(e);
-    }
-  };
-
-  const skipPassword = () => {
+  const enterFresh = () => {
     if (!fresh) return;
     saveToken(fresh.token);
     onAuthed();
@@ -100,21 +86,18 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
         <section className="login-form" aria-label="登录">
           <p className="login-logo">DIMSPACE</p>
           <p className="login-welcome">Welcome back 🧡</p>
-          <h1>{fresh ? '设置密码' : 'Log In'}</h1>
+          <h1>{fresh ? '注册成功' : 'Log In'}</h1>
           {fresh ? (
             <div className="login-fresh">
-              <p className="login-fresh-tip">注册成功!这是你的坐标号,请牢记:</p>
+              <p className="login-fresh-tip">这是你的坐标号,它就是你的登录密码,请牢记:</p>
               <p className="login-fresh-id" aria-label="你的坐标号">{fresh.coordinateId}</p>
-              <label className="login-field">登录密码<input type="password" autoComplete="new-password" placeholder="至少6位" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /></label>
-              {error && <p className="login-error" role="alert">{error}</p>}
-              <button className="login-submit" type="button" disabled={busy} onClick={() => void submitPassword()}>进入工作台</button>
-              <button className="login-link" type="button" onClick={skipPassword}>跳过,先逛逛</button>
+              <button className="login-submit" type="button" onClick={enterFresh}>进入工作台</button>
             </div>
           ) : (
             <>
               <div className="login-tabs" role="tablist" aria-label="登录方式">
                 <button type="button" role="tab" aria-selected={mode === 'phone'} className={mode === 'phone' ? 'on' : ''} onClick={() => { setMode('phone'); setError(null); }}>手机验证码</button>
-                <button type="button" role="tab" aria-selected={mode === 'id'} className={mode === 'id' ? 'on' : ''} onClick={() => { setMode('id'); setError(null); }}>坐标号登录</button>
+                <button type="button" role="tab" aria-selected={mode === 'id'} className={mode === 'id' ? 'on' : ''} onClick={() => { setMode('id'); setError(null); }}>账号密码登录</button>
               </div>
               {mode === 'phone' ? (
                 <>
@@ -127,8 +110,9 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
                 </>
               ) : (
                 <>
-                  <label className="login-field">坐标号<input autoComplete="username" placeholder="XYZ1000" value={coordinateId} onChange={(e) => setCoordinateId(e.target.value)} /></label>
-                  <label className="login-field">密码<input type="password" autoComplete="current-password" placeholder="登录密码" value={password} onChange={(e) => setPasswordInput(e.target.value)} /></label>
+                  <label className="login-field">手机号(账号)<input inputMode="numeric" autoComplete="username" placeholder="注册时的手机号" value={accountPhone} onChange={(e) => setAccountPhone(e.target.value)} /></label>
+                  <label className="login-field">坐标号(密码)<input autoComplete="current-password" placeholder="XYZ 开头的坐标号" value={accountCode} onChange={(e) => setAccountCode(e.target.value)} /></label>
+                  <p className="login-hint">手机号就是账号,坐标号就是密码。</p>
                 </>
               )}
               {error && <p className="login-error" role="alert">{error}</p>}

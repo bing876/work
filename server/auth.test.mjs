@@ -60,10 +60,9 @@ describe('账号系统', () => {
     const { status, json } = await req('POST', '/api/auth/login-phone', { phone: PHONE_A, code: '123456' });
     assert.equal(status, 200);
     assert.equal(json.registered, true);
-    assert.equal(json.needPassword, true);
-    assert.match(json.message, /设置登录密码/);
+    assert.match(json.message, /坐标号即登录密码/);
     assert.match(json.user.coordinateId, /^XYZ\d{4,}$/);
-    assert.ok(!('password_hash' in json.user));
+    assert.deepEqual(Object.keys(json.user).sort(), ['coordinateId', 'created_at', 'id', 'phone']);
     assert.ok(json.token.length > 20);
     tokenA = json.token;
     coordA = json.user.coordinateId;
@@ -78,31 +77,26 @@ describe('账号系统', () => {
     tokenB = json.token;
   });
 
-  it('用例3:设密码后坐标号+密码登录成功;错码/错密明确提示', async () => {
-    assert.equal((await req('POST', '/api/auth/set-password', { password: 'secret123' }, tokenA)).status, 200);
-    assert.equal((await req('POST', '/api/auth/set-password', { password: '123' }, tokenA)).status, 400);
-    const ok = await req('POST', '/api/auth/login-id', { coordinateId: coordA, password: 'secret123' });
+  it('用例3:手机号+坐标号登录成功;错号/未注册明确提示', async () => {
+    const ok = await req('POST', '/api/auth/login-account', { phone: PHONE_A, coordinateId: coordA });
     assert.equal(ok.status, 200);
     assert.equal(ok.json.user.phone, PHONE_A);
-    const lower = await req('POST', '/api/auth/login-id', { coordinateId: coordA.toLowerCase(), password: 'secret123' });
-    assert.equal(lower.status, 200); // 小写同样认
-    const wrongPw = await req('POST', '/api/auth/login-id', { coordinateId: coordA, password: 'nope-nope' });
-    assert.equal(wrongPw.status, 401);
-    assert.match(wrongPw.json.error, /密码错误/);
-    const noId = await req('POST', '/api/auth/login-id', { coordinateId: 'XYZ100000000', password: 'x' });
-    assert.equal(noId.status, 401);
-    assert.match(noId.json.error, /坐标号不存在/);
-    const noPw = await req('POST', '/api/auth/login-id', { coordinateId: coordB, password: 'x' });
-    assert.equal(noPw.status, 401);
-    assert.match(noPw.json.error, /尚未设置密码/);
-    assert.equal((await req('POST', '/api/auth/login-id', { coordinateId: 'ABC', password: 'x' })).status, 400);
+    const lower = await req('POST', '/api/auth/login-account', { phone: PHONE_A, coordinateId: coordA.toLowerCase() });
+    assert.equal(lower.status, 200); // 坐标号小写同样认
+    const other = await req('POST', '/api/auth/login-account', { phone: PHONE_A, coordinateId: coordB });
+    assert.equal(other.status, 401);
+    assert.match(other.json.error, /坐标号不正确/); // 别人的号不能登
+    const noPhone = await req('POST', '/api/auth/login-account', { phone: '13900000000', coordinateId: coordA });
+    assert.equal(noPhone.status, 401);
+    assert.match(noPhone.json.error, /尚未注册/);
+    assert.equal((await req('POST', '/api/auth/login-account', { phone: PHONE_A, coordinateId: 'ABC' })).status, 400);
+    assert.equal((await req('POST', '/api/auth/login-account', { phone: 'abc', coordinateId: coordA })).status, 400);
   });
 
   it('用例4:已注册手机验证码直接登录;me 返回身份', async () => {
     const { status, json } = await req('POST', '/api/auth/login-phone', { phone: PHONE_A, code: '123456' });
     assert.equal(status, 200);
     assert.equal(json.registered, false);
-    assert.equal(json.needPassword, false);
     const me = await req('GET', '/api/auth/me', undefined, json.token);
     assert.equal(me.status, 200);
     assert.equal(me.json.user.coordinateId, coordA);
@@ -142,7 +136,7 @@ describe('账号系统', () => {
     try {
       Math.random = () => 0;
       assert.equal(allocateCoordinate(mem), 'XYZ1000');
-      mem.prepare('INSERT INTO users (phone, password_hash, coordinate_id, created_at) VALUES (?, ?, ?, ?)').run('10000000001', null, 'XYZ1000', 't');
+      mem.prepare('INSERT INTO users (phone, coordinate_id, created_at) VALUES (?, ?, ?)').run('10000000001', 'XYZ1000', 't');
       let n = 0;
       Math.random = () => [0, 0.5][n++] ?? 0.9;
       assert.equal(allocateCoordinate(mem), 'XYZ5500'); // 首抽撞号,次抽命中

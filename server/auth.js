@@ -1,11 +1,10 @@
-// 用户账号:密码哈希(scrypt)、JWT(HS256)、验证码(开发固定码,短信商预留)。零依赖,只用 node:crypto。
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+// 用户账号:手机号=账号,坐标号=密码。JWT(HS256)、验证码(开发固定码,短信商预留)。零依赖,只用 node:crypto。
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const USERS_DDL = `
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     phone TEXT NOT NULL UNIQUE,
-    password_hash TEXT,
     coordinate_id TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL
   )
@@ -24,26 +23,6 @@ export const normalizeCoordinate = (cid) => {
   const v = String(cid ?? '').trim().toUpperCase();
   if (!/^XYZ\d+$/.test(v)) throw new Error('坐标号格式错误(应为 XYZ + 数字,如 XYZ1000)');
   return v;
-};
-
-// ---- 密码哈希 scrypt(盐随机,防彩虹表;比较用恒定时间,防时序攻击) ----
-export const hashPassword = (password) => {
-  if (typeof password !== 'string' || password.length < 6) throw new Error('密码至少6位');
-  if (password.length > 200) throw new Error('密码最多200位');
-  const salt = randomBytes(16).toString('hex');
-  return `scrypt$${salt}$${scryptSync(password, salt, 64).toString('hex')}`;
-};
-export const verifyPassword = (password, stored) => {
-  if (typeof stored !== 'string') return false;
-  const [algo, salt, hash] = stored.split('$');
-  if (algo !== 'scrypt' || !salt || !hash) return false;
-  try {
-    const a = Buffer.from(scryptSync(String(password ?? ''), salt, 64).toString('hex'), 'hex');
-    const b = Buffer.from(hash, 'hex');
-    return a.length === b.length && timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
 };
 
 // ---- JWT(HS256,手写):只认 HS256(防算法混淆),签名恒定时间比较,过期即拒 ----
@@ -119,7 +98,7 @@ export const registerUser = (db, phone) => {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const id = Number(
-        db.prepare('INSERT INTO users (phone, password_hash, coordinate_id, created_at) VALUES (?, ?, ?, ?)').run(phone, null, allocateCoordinate(db), now()).lastInsertRowid,
+        db.prepare('INSERT INTO users (phone, coordinate_id, created_at) VALUES (?, ?, ?)').run(phone, allocateCoordinate(db), now()).lastInsertRowid,
       );
       return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     } catch (error) {

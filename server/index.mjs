@@ -16,7 +16,7 @@ import { ModelError, callModel, loadModelConfig } from './model.js';
 import { buildMessages, buildSystemPrompt } from './prompts.js';
 import { TASKS_DDL, cancelTask, confirmTask, createTask, normalizeTaskInput, pendingText, reviseTask, toTaskJson } from './tasks.js';
 import { applyDialogueActions } from './actions.js';
-import { USERS_DDL, findUserByCoordinate, findUserByPhone, hashPassword, normalizeCoordinate, normalizePhone, registerUser, requestCode, signToken, toUserJson, verifyCode, verifyPassword, verifyToken } from './auth.js';
+import { USERS_DDL, findUserByPhone, normalizeCoordinate, normalizePhone, registerUser, requestCode, signToken, toUserJson, verifyCode, verifyToken } from './auth.js';
 import { serveStatic } from './static.js';
 import { MEMORY_ENDS, MEMORY_START, applyCorrect, buildSummary, defaultConsensus, detectUserGuess, extractMarked, guessDecision, makeItem, saveRemembered } from './consensus.js';
 
@@ -63,6 +63,10 @@ db.exec(`
 `);
 db.exec(TASKS_DDL);
 db.exec(USERS_DDL);
+// 老库迁移:密码体系已砍掉,手机号=账号、坐标号=密码,删掉残留的 password_hash 列
+if (db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'password_hash')) {
+  db.exec('ALTER TABLE users DROP COLUMN password_hash');
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS model_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -220,7 +224,7 @@ const server = createServer(async (req, res) => {
     }
 
     // 1.5) 鉴权:公开账号接口放行,其余 /api/* 必须带有效 Token;无 Token/过期一律 401
-    const OPEN_AUTH = ['/api/auth/code', '/api/auth/login-phone', '/api/auth/login-id'];
+    const OPEN_AUTH = ['/api/auth/code', '/api/auth/login-phone', '/api/auth/login-account'];
     let userId = null;
     if (url.pathname.startsWith('/api/') && !OPEN_AUTH.includes(url.pathname)) {
       const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
@@ -228,7 +232,7 @@ const server = createServer(async (req, res) => {
       if (!userId) return send(res, 401, { ok: false, error: '未登录或登录已过期,请先登录', code: 'UNAUTHORIZED' });
     }
 
-    // 2) 账号:发码(开发固定码)/手机码登录(自动注册)/坐标号登录/设密码/我
+    // 2) 账号:发码(开发固定码)/手机码登录(自动注册)/账号登录(手机号+坐标号)/我
     if (req.method === 'POST' && url.pathname === '/api/auth/code') {
       let phone;
       try {
@@ -263,31 +267,22 @@ const server = createServer(async (req, res) => {
           if (!user) return send(res, 500, { ok: false, error: '注册失败,请重试' });
         }
       }
-      return send(res, 200, { ok: true, token: signToken(user.id), registered, needPassword: !user.password_hash, user: toUserJson(user), ...(registered ? { message: '已自动注册,请设置登录密码' } : {}) });
+      return send(res, 200, { ok: true, token: signToken(user.id), registered, user: toUserJson(user), ...(registered ? { message: '已自动注册,坐标号即登录密码,请牢记' } : {}) });
     }
-    if (req.method === 'POST' && url.pathname === '/api/auth/login-id') {
+    if (req.method === 'POST' && url.pathname === '/api/auth/login-account') {
       const body = JSON.parse((await readBody(req)) || '{}');
+      let phone;
       let cid;
       try {
+        phone = normalizePhone(body.phone);
         cid = normalizeCoordinate(body.coordinateId);
       } catch (error) {
-        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '坐标号错误' });
+        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '账号错误' });
       }
-      const user = findUserByCoordinate(db, cid);
-      if (!user) return send(res, 401, { ok: false, error: '坐标号不存在,请检查后重试', code: 'NO_SUCH_ID' });
-      if (!user.password_hash) return send(res, 401, { ok: false, error: '该账号尚未设置密码,请用手机验证码登录后设置', code: 'NO_PASSWORD' });
-      if (!verifyPassword(body.password, user.password_hash)) return send(res, 401, { ok: false, error: '密码错误,请重试', code: 'BAD_PASSWORD' });
+      const user = findUserByPhone(db, phone);
+      if (!user) return send(res, 401, { ok: false, error: '该手机号尚未注册,请用验证码登录', code: 'NO_SUCH_PHONE' });
+      if (user.coordinate_id !== cid) return send(res, 401, { ok: false, error: '坐标号不正确,请检查后重试', code: 'BAD_COORDINATE' });
       return send(res, 200, { ok: true, token: signToken(user.id), user: toUserJson(user) });
-    }
-    if (req.method === 'POST' && url.pathname === '/api/auth/set-password') {
-      let hash;
-      try {
-        hash = hashPassword(JSON.parse((await readBody(req)) || '{}').password);
-      } catch (error) {
-        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '密码错误' });
-      }
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
-      return send(res, 200, { ok: true });
     }
     if (req.method === 'GET' && url.pathname === '/api/auth/me') {
       const me = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);

@@ -67,14 +67,11 @@ const post = async <T>(path: string, body: unknown, token?: string | null): Prom
 export const requestCode = (phone: string): Promise<{ dev: boolean; message: string }> =>
   post('/api/auth/code', { phone });
 
-export const loginPhone = (phone: string, code: string): Promise<{ token: string; registered: boolean; needPassword: boolean; user: AuthUser; message?: string }> =>
+export const loginPhone = (phone: string, code: string): Promise<{ token: string; registered: boolean; user: AuthUser; message?: string }> =>
   post('/api/auth/login-phone', { phone, code });
 
-export const loginId = (coordinateId: string, password: string): Promise<{ token: string; user: AuthUser }> =>
-  post('/api/auth/login-id', { coordinateId, password });
-
-export const setPassword = (password: string, token: string): Promise<{ ok: true }> =>
-  post('/api/auth/set-password', { password }, token);
+export const loginAccount = (phone: string, coordinateId: string): Promise<{ token: string; user: AuthUser }> =>
+  post('/api/auth/login-account', { phone, coordinateId });
 
 export const fetchMe = async (token: string): Promise<AuthUser> => {
   let res: Response;
