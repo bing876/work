@@ -10,7 +10,7 @@ import avatar1 from '../assets/prototype/avatar-1.png';
 import avatar2 from '../assets/prototype/avatar-2.png';
 import avatar3 from '../assets/prototype/avatar-3.png';
 import avatar4 from '../assets/prototype/avatar-4.png';
-import { getToken, logout } from '../client/auth';
+import { getToken, getUser, logout } from '../client/auth';
 import avatar5 from '../assets/prototype/avatar-5.png';
 import avatar6 from '../assets/prototype/avatar-6.png';
 import railContacts from '../assets/prototype/rail-contact.png';
@@ -300,5 +300,5 @@ function ModelSelector({ state, dispatch }: { state: ShellState; dispatch: React
 
 function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [pane, setPane] = useState('通用');
-  return <dialog className="settings-modal" open aria-label="设置"><section className="settings-card"><aside><h2>设置</h2>{['通用', '外观', '通知', '关于'].map((item) => <button key={item} className={pane === item ? 'selected' : ''} onClick={() => setPane(item)} type="button">{item}</button>)}</aside><main><button className="settings-close" type="button" aria-label="关闭设置" onClick={onClose}><X size={20} /></button><h3>{pane}</h3><p>XYZ Workbench vNext 的本地界面偏好将显示在这里。</p><label>界面缩放<select defaultValue="100"><option value="100">100%</option><option value="110">110%</option></select></label><label className="check-row"><input type="checkbox" defaultChecked />显示在线状态</label>{getToken() && <button className="settings-logout" type="button" onClick={logout}>退出登录</button>}</main></section></dialog>;
+  return <dialog className="settings-modal" open aria-label="设置"><section className="settings-card"><aside><h2>设置</h2>{['通用', '外观', '通知', '关于'].map((item) => <button key={item} className={pane === item ? 'selected' : ''} onClick={() => setPane(item)} type="button">{item}</button>)}</aside><main><button className="settings-close" type="button" aria-label="关闭设置" onClick={onClose}><X size={20} /></button><h3>{pane}</h3><p>XYZ Workbench vNext 的本地界面偏好将显示在这里。</p><label>界面缩放<select defaultValue="100"><option value="100">100%</option><option value="110">110%</option></select></label><label className="check-row"><input type="checkbox" defaultChecked />显示在线状态</label>{(() => { const me = getToken() ? getUser() : null; return me ? <p className="settings-account">登录账号:{me.coordinateId} / 手机:{me.phone}</p> : null; })()}{getToken() && <button className="settings-logout" type="button" onClick={logout}>退出登录</button>}</main></section></dialog>;
 }

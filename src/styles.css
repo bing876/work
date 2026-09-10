@@ -395,6 +395,7 @@ body { margin: 0; min-width: 980px; min-height: 760px; overflow: hidden; backgro
 .login-box input { flex: 1; border: none; background: transparent; padding: 15px; font-size: 15px; color: #141414; outline: none; min-width: 0; }
 .login-box input::placeholder { color: #a6aebb; }
 .login-phone select { border: none; background: transparent; font-size: 15px; color: #141414; outline: none; padding-left: 15px; cursor: pointer; }
+.login-xyz-prefix { padding-left: 15px; font-size: 15px; font-weight: 800; letter-spacing: 1px; color: #141414; }
 .login-code-row { display: flex; gap: 10px; align-items: stretch; }
 .login-code-row .login-box { flex: 1; }
 .login-code-btn { border: 1px solid #d5dae1; background: #fff; color: #141414; border-radius: 10px; padding: 0 20px; font-size: 14px; cursor: pointer; margin-bottom: 16px; white-space: nowrap; }
@@ -409,7 +410,6 @@ body { margin: 0; min-width: 980px; min-height: 760px; overflow: hidden; backgro
 .login-or { display: flex; align-items: center; gap: 12px; color: #a6aebb; font-size: 13px; margin: 22px 0 14px; }
 .login-or::before, .login-or::after { content: ''; flex: 1; height: 1px; background: #e7ebf0; }
 .login-wechat { border: 1px solid #e3e8f0; background: #fff; border-radius: 10px; padding: 13px 0; font-size: 14px; color: #141414; cursor: not-allowed; display: flex; align-items: center; justify-content: center; gap: 8px; opacity: 0.75; }
-.login-fresh-tip { color: #5b6570; font-size: 14px; }
-.login-fresh-id { font-size: 34px; font-weight: 900; color: #141414; letter-spacing: 1px; margin: 8px 0 18px; }
+.settings-account { font-size: 13px; color: #374151; background: #f1f3f6; border-radius: 8px; padding: 10px 12px; margin: 12px 0 0; }
 .settings-logout { margin-top: 14px; border: 1px solid #e3a4b8; background: #fff; color: #d81b60; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; }
 @media (max-width: 900px) { .login-page { padding: 16px; } .login-poster { display: none; } .login-form { padding: 40px 28px; } }

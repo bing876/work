@@ -1,6 +1,6 @@
 // 双界面开关:无 Token/Token 失效 -> 登录小卡片;有效 -> 工作台(mock 模式不经过这里)。
 import { useEffect, useState } from 'react';
-import { clearToken, fetchMe, getToken, subscribeUnauthorized } from '../client/auth';
+import { clearToken, fetchMe, getToken, saveUser, subscribeUnauthorized } from '../client/auth';
 import { LoginCard } from '../features/LoginCard';
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
@@ -20,8 +20,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       };
     }
     fetchMe(token)
-      .then(() => {
-        if (alive) setStatus('authed');
+      .then((me) => {
+        if (alive) {
+          saveUser(me);
+          setStatus('authed');
+        }
       })
       .catch(() => {
         if (alive) {

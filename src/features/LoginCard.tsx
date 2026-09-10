@@ -1,7 +1,7 @@
 // 登录弹窗:左海报(占满+箭头切换)+右表单。逻辑:默认账号密码登录(坐标号=账号,手机号=密码),
 // 点注册切验证码登录(新手机号自动获配坐标号)。海报配置见 login-posters.ts。
 import { useEffect, useState } from 'react';
-import { loginAccount, loginPhone, requestCode, saveToken } from '../client/auth';
+import { loginAccount, loginPhone, requestCode, saveToken, saveUser } from '../client/auth';
 import { LOGIN_POSTERS } from './login-posters';
 
 type Mode = 'code' | 'account';
@@ -15,8 +15,6 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  // 新手机号:第二步展示坐标号(即登录账号)
-  const [fresh, setFresh] = useState<{ token: string; coordinateId: string } | null>(null);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -49,12 +47,8 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
     setBusy(true);
     try {
       const res = await loginPhone(phone, code);
-      if (res.registered) {
-        setFresh({ token: res.token, coordinateId: res.user.coordinateId });
-        setBusy(false);
-        return;
-      }
       saveToken(res.token);
+      saveUser(res.user);
       onAuthed();
     } catch (e) {
       fail(e);
@@ -66,18 +60,15 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
     setError(null);
     setBusy(true);
     try {
-      const res = await loginAccount(phone, accountId);
+      // XYZ 前缀固定,用户只输数字;顺手兼容整串粘贴
+      const cid = `XYZ${accountId.replace(/[^0-9]/g, '')}`;
+      const res = await loginAccount(phone, cid);
       saveToken(res.token);
+      saveUser(res.user);
       onAuthed();
     } catch (e) {
       fail(e);
     }
-  };
-
-  const enterFresh = () => {
-    if (!fresh) return;
-    saveToken(fresh.token);
-    onAuthed();
   };
 
   const goRegister = () => {
@@ -101,21 +92,17 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
           </div>
         </aside>
         <section className="login-form" aria-label="登录表单">
-          {fresh ? (
-            <div className="login-fresh">
-              <p className="login-fresh-tip">注册成功!这是你的坐标号,它就是你的登录账号,请牢记:</p>
-              <p className="login-fresh-id" aria-label="你的坐标号">{fresh.coordinateId}</p>
-              <button className="login-submit" type="button" onClick={enterFresh}>进入工作台</button>
-            </div>
-          ) : (
-            <>
+          <>
               <div className="login-tabs" role="tablist" aria-label="登录方式">
                 <button type="button" role="tab" aria-selected={mode === 'account'} className={mode === 'account' ? 'on' : ''} onClick={() => { setMode('account'); setError(null); }}>账号密码登录</button>
                 <button type="button" role="tab" aria-selected={mode === 'code'} className={mode === 'code' ? 'on' : ''} onClick={() => { setMode('code'); setError(null); }}>验证码登录</button>
               </div>
               {mode === 'account' ? (
                 <>
-                  <label className="login-box"><span className="login-visually-hidden">坐标号</span><input aria-label="坐标号" autoComplete="username" placeholder="请输入坐标号" value={accountId} onChange={(e) => setAccountId(e.target.value)} /></label>
+                  <div className="login-box login-xyz">
+                    <span className="login-xyz-prefix" aria-hidden="true">XYZ</span>
+                    <span className="login-visually-hidden">坐标号</span><input aria-label="坐标号" inputMode="numeric" autoComplete="username" placeholder="请输入数字部分" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
+                  </div>
                   <label className="login-box"><span className="login-visually-hidden">手机号</span><input aria-label="手机号" inputMode="numeric" autoComplete="current-password" placeholder="请输入手机号" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
                   <p className="login-hint">坐标号就是账号,手机号就是密码。</p>
                 </>
@@ -142,8 +129,7 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
               )}
               <div className="login-or" aria-hidden="true"><span>或</span></div>
               <button className="login-wechat" type="button" disabled title="微信登录即将上线"><span aria-hidden="true">💬</span>微信登录·即将上线</button>
-            </>
-          )}
+          </>
         </section>
       </div>
     </main>

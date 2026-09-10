@@ -8,6 +8,6 @@ export interface LoginPoster {
 }
 
 export const LOGIN_POSTERS: LoginPoster[] = [
-  { src: poster1, caption: '沙海晨曲' },
-  { src: poster2, caption: '荒漠孤峰' },
+  { src: poster1, caption: '荒漠孤峰' },
+  { src: poster2, caption: '沙海晨曲' },
 ];

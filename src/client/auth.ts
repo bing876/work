@@ -7,6 +7,7 @@ export interface AuthUser {
 }
 
 const TOKEN_KEY = 'dimspace-token';
+const USER_KEY = 'dimspace-user';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export const getToken = (): string | null => {
@@ -20,8 +21,24 @@ export const saveToken = (token: string): void => localStorage.setItem(TOKEN_KEY
 export const clearToken = (): void => {
   try {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
   } catch {
     /* 私有模式忽略 */
+  }
+};
+export const saveUser = (user: AuthUser): void => {
+  try {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } catch {
+    /* 私有模式忽略 */
+  }
+};
+export const getUser = (): AuthUser | null => {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null;
   }
 };
 

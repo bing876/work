@@ -18,7 +18,8 @@ describe('LoginCard 登录弹窗', () => {
     expect(screen.getByText('零度之上')).toBeInTheDocument();
     expect(screen.getByText(LOGIN_POSTERS[0].caption)).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '账号密码登录' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByLabelText('坐标号')).toHaveAttribute('placeholder', '请输入坐标号');
+    expect(screen.getByLabelText('坐标号')).toHaveAttribute('placeholder', '请输入数字部分');
+    expect(screen.getByText('XYZ')).toBeInTheDocument();
     expect(screen.getByLabelText('手机号')).toHaveAttribute('placeholder', '请输入手机号');
   });
 
@@ -32,10 +33,12 @@ describe('LoginCard 登录弹窗', () => {
     expect(screen.getByText(LOGIN_POSTERS[1].caption)).toBeInTheDocument();
   });
 
-  it('坐标号+手机号登录成功进工作台;失败显示人话错误', async () => {
+  it('坐标号只输数字自动拼XYZ;手机号+坐标登录成功进工作台', async () => {
+    let sentBody = '';
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === '/api/auth/login-account') {
-        const body = JSON.parse(String(init?.body ?? '{}')) as { phone: string };
+        sentBody = String(init?.body ?? '');
+        const body = JSON.parse(sentBody) as { phone: string };
         if (body.phone === '13800000001') return Promise.resolve(jsonResponse({ ok: true, token: 'tok-2', user }));
         return Promise.resolve(jsonResponse({ ok: false, error: '手机号不正确,请检查后重试', code: 'BAD_PHONE' }, 401));
       }
@@ -44,10 +47,11 @@ describe('LoginCard 登录弹窗', () => {
     vi.stubGlobal('fetch', fetchMock);
     const onAuthed = vi.fn();
     render(<LoginCard onAuthed={onAuthed} />);
-    fireEvent.change(screen.getByLabelText('坐标号'), { target: { value: 'XYZ52420' } });
+    fireEvent.change(screen.getByLabelText('坐标号'), { target: { value: '52420' } });
     fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13900000000' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('手机号不正确'));
+    expect(JSON.parse(sentBody)).toMatchObject({ coordinateId: 'XYZ52420' });
     expect(onAuthed).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800000001' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
@@ -75,7 +79,7 @@ describe('LoginCard 登录弹窗', () => {
     expect(localStorage.getItem('dimspace-token')).toBe('tok-1');
   });
 
-  it('新手机号验证码登录→展示坐标号即账号→进工作台', async () => {
+  it('新手机号验证码登录直进工作台,无中间页,身份存本地', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url === '/api/auth/login-phone') {
         return Promise.resolve(jsonResponse({ ok: true, token: 'tok-new', registered: true, user }));
@@ -89,11 +93,9 @@ describe('LoginCard 登录弹窗', () => {
     fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800000099' } });
     fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } });
     fireEvent.click(screen.getByRole('button', { name: '登录 / 注册' }));
-    await waitFor(() => expect(screen.getByLabelText('你的坐标号')).toHaveTextContent('XYZ52420'));
-    expect(onAuthed).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '进入工作台' }));
-    expect(onAuthed).toHaveBeenCalled();
+    await waitFor(() => expect(onAuthed).toHaveBeenCalled());
     expect(localStorage.getItem('dimspace-token')).toBe('tok-new');
+    expect(JSON.parse(localStorage.getItem('dimspace-user') ?? '{}')).toMatchObject({ coordinateId: 'XYZ52420' });
   });
 
   it('获取验证码调接口并进入倒计时;微信按钮禁用待上线', async () => {
