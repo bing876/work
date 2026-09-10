@@ -24,7 +24,7 @@ describe('LoginCard 登录小卡片', () => {
     render(<LoginCard onAuthed={onAuthed} />);
     fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800000001' } });
     fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: 'LOGIN' }));
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(onAuthed).toHaveBeenCalled());
     expect(localStorage.getItem('dimspace-token')).toBe('tok-1');
   });
@@ -41,7 +41,7 @@ describe('LoginCard 登录小卡片', () => {
     render(<LoginCard onAuthed={onAuthed} />);
     fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800000099' } });
     fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: 'LOGIN' }));
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(screen.getByLabelText('你的坐标号')).toHaveTextContent('XYZ5242'));
     expect(onAuthed).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '进入工作台' }));
@@ -62,23 +62,33 @@ describe('LoginCard 登录小卡片', () => {
     const onAuthed = vi.fn();
     render(<LoginCard onAuthed={onAuthed} />);
     fireEvent.click(screen.getByRole('tab', { name: '账号密码登录' }));
-    fireEvent.change(screen.getByLabelText('手机号(账号)'), { target: { value: '13800000001' } });
+    fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800000001' } });
     fireEvent.change(screen.getByLabelText('坐标号(密码)'), { target: { value: 'XYZ0000' } });
-    fireEvent.click(screen.getByRole('button', { name: 'LOGIN' }));
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('坐标号不正确'));
     expect(onAuthed).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('坐标号(密码)'), { target: { value: 'XYZ5242' } });
-    fireEvent.click(screen.getByRole('button', { name: 'LOGIN' }));
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(onAuthed).toHaveBeenCalled());
   });
 
-  it('发送验证码调接口并进入倒计时', async () => {
+  it('获取验证码调接口并进入倒计时,带 +86 区号选择', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, dev: true, message: 'x' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<LoginCard onAuthed={() => {}} />);
     fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800000001' } });
-    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+    fireEvent.click(screen.getByRole('button', { name: '获取验证码' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/auth/code', expect.objectContaining({ method: 'POST' })));
     expect(screen.getByRole('button', { name: '60s' })).toBeDisabled();
+    expect(screen.getByLabelText('国家区号')).toHaveValue('86');
+  });
+
+  it('底部坐标按钮切到账号登录;微信按钮禁用待上线', async () => {
+    render(<LoginCard onAuthed={() => {}} />);
+    expect(screen.queryByLabelText('坐标号(密码)')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '坐标登录' }));
+    expect(screen.getByLabelText('坐标号(密码)')).toBeInTheDocument();
+    const wechat = screen.getByRole('button', { name: /微信登录/ });
+    expect(wechat).toBeDisabled();
   });
 });
