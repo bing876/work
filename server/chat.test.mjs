@@ -34,6 +34,15 @@ const stub = createServer((req, res) => {
     if (stubMode === 'consensus') {
       return send(200, { choices: [{ message: { content: '正文回答。\n【记住】\n先做代发试水\n主做茶叶\n【记住结束】' } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
     }
+    if (stubMode === 'propose') {
+      return send(200, { choices: [{ message: { content: '方案如下:周五全场涨5%,你看行吗?\n【提议】\n标题:发调价通知\n内容:周五全场涨5%\n【提议结束】' } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
+    }
+    if (stubMode === 'confirm' || stubMode === 'stale') {
+      const pend = [...lastRequest.messages[0].content.matchAll(/#(\d+)[^\n]*第(\d+)版/g)];
+      const [tid, ver] = pend.length ? [Number(pend.at(-1)[1]), Number(pend.at(-1)[2])] : [0, 0];
+      const sendVer = stubMode === 'stale' ? (ver > 1 ? ver - 1 : 999) : ver;
+      return send(200, { choices: [{ message: { content: `好,就这么办。\n【确认】\n任务:${tid}\n版本:${sendVer}\n【确认结束】` } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
+    }
     if (stubMode === 'variant') {
       return send(200, { choices: [{ message: { content: '要不先挑一个回我\n【记住】\n用户代发启动预算为一万元\n【/记住】' } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
     }
@@ -91,6 +100,8 @@ const api = (port) => {
       return { status: res.status, ...(await res.json()) };
     },
     getSummary: async (id) => (await (await fetch(`${base}/api/projects/${id}/summary`)).json()),
+    tasksOf: async (id) => (await (await fetch(`${base}/api/projects/${id}/tasks`)).json()).tasks,
+    put: (path, body) => fetch(`${base}${path}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   };
 };
 const main = api(MAIN_PORT);
@@ -231,6 +242,47 @@ describe('项目记忆', () => {
     assert.equal(data.consensus.decisions.length, 1);
     assert.equal(data.consensus.decisions[0].text, '用户代发启动预算为一万元');
     assert.equal(data.messages[2].text, '要不先挑一个回我');
+    stubMode = 'ok';
+  });
+
+  it('步骤5 对话提议:任务建成 proposed,回复无标记', async () => {
+    stubMode = 'propose';
+    const data = await main.create('提议店', '帮我安排调价');
+    assert.doesNotMatch(data.messages[2].text, /【/);
+    const tasks = await main.tasksOf(data.project.id);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].title, '发调价通知');
+    assert.equal(tasks[0].status, 'proposed');
+    assert.equal(tasks[0].proposalVersion, 1);
+    stubMode = 'ok';
+  });
+
+  it('步骤5 对话确认:读 system 编号确认,confirmed 且无提示', async () => {
+    stubMode = 'propose';
+    const data = await main.create('确认店', '帮我安排调价');
+    stubMode = 'confirm';
+    const answer = await main.chat(data.project.id, '好的,确认');
+    assert.equal(answer.status, 200);
+    assert.doesNotMatch(answer.reply.text, /【/);
+    assert.doesNotMatch(answer.reply.text, /系统提示/);
+    const tasks = await main.tasksOf(data.project.id);
+    assert.equal(tasks[0].status, 'confirmed');
+    stubMode = 'ok';
+  });
+
+  it('步骤5 过期确认:诚实提示且状态不动', async () => {
+    stubMode = 'ok';
+    const data = await main.create('过期店', '先聊一句');
+    stubMode = 'propose';
+    await main.chat(data.project.id, '帮我安排调价');
+    const tid = (await main.tasksOf(data.project.id))[0].id;
+    await main.put(`/api/projects/${data.project.id}/tasks/${tid}`, { detail: '改到周六' });
+    stubMode = 'stale';
+    const answer = await main.chat(data.project.id, '确认');
+    assert.doesNotMatch(answer.reply.text, /【/);
+    assert.match(answer.reply.text, /没确认成功/);
+    assert.match(answer.reply.text, /第2版/);
+    assert.equal((await main.tasksOf(data.project.id))[0].status, 'proposed');
     stubMode = 'ok';
   });
 

@@ -26,7 +26,12 @@ node server/index.mjs
 | POST | `/api/projects/:id/tasks` | 建方案,Body `{"title":"...","detail":"..."}`(后者可选)；返回 `status=proposed,proposalVersion=1` |
 | PUT | `/api/projects/:id/tasks/:taskId` | 修订方案(仅 proposed 可改,版本号+1)；已确认改→409 |
 | POST | `/api/projects/:id/tasks/:taskId/confirm` | 显式确认,Body `{"proposalVersion":整数}`；版本过期→409(含 `currentVersion`)；重复确认→200幂等 |
+| POST | `/api/projects/:id/tasks/:taskId/cancel` | 取消方案(proposed/confirmed 均可,已取消再取幂等) |
 | POST | `/api/projects/:id/chat` | AI 对话,Body `{"text":"..."}`；返回 `{mode,reply,done,project}`；模型失败时明确报错+可重试(503 未配置/429 超预算/504 超时/502 调用失败) |
+
+### 交互决策(步骤4验收时确定,步骤5起执行)
+- 确认交互只走自然语言对话,不做确认按钮/任务卡片 UI:用户说确认类→模型发【确认】块→后端 `confirmTask`;说算了→【取消】;说调整→【修订】;需新方案→【提议】。
+- 后端 `taskId + proposalVersion + 幂等` 保留作安全保障;待确认清单注入 system prompt 供模型对编号;动作块一律剥离不显示,确认/修订失败才追加一句系统提示。
 
 提示词见 `server/prompts.js`,行业模板见 `server/templates/`,后端硬规则见 `server/policy.js`。
 

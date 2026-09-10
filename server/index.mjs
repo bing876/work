@@ -14,6 +14,8 @@ import { OPENING } from './interview.js';
 import { honestReply } from './policy.js';
 import { ModelError, callModel, loadModelConfig } from './model.js';
 import { buildMessages, buildSystemPrompt } from './prompts.js';
+import { TASKS_DDL, cancelTask, confirmTask, createTask, normalizeTaskInput, pendingText, reviseTask, toTaskJson } from './tasks.js';
+import { applyDialogueActions } from './actions.js';
 import { serveStatic } from './static.js';
 import { MEMORY_ENDS, MEMORY_START, applyCorrect, buildSummary, defaultConsensus, detectUserGuess, extractMarked, guessDecision, makeItem, saveRemembered } from './consensus.js';
 
@@ -58,18 +60,7 @@ db.exec(`
     created_at TEXT NOT NULL
   )
 `);
-db.exec(`
-  CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    detail TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'proposed',
-    proposal_version INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    confirmed_at TEXT
-  )
-`);
+db.exec(TASKS_DDL);
 db.exec(`
   CREATE TABLE IF NOT EXISTS model_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,32 +111,7 @@ const toProjectJson = (row) => ({
   phase: row.phase ?? 'consulting',
 });
 const toMessageJson = (row) => ({ id: row.id, author: row.author, text: row.text, created_at: row.created_at });
-// 步骤4任务确认门:方案(title/detail)+状态(proposed/confirmed)+版本号。后端做状态检查+幂等。
-const toTaskJson = (row) => ({
-  id: row.id,
-  title: row.title,
-  detail: row.detail ?? '',
-  status: row.status,
-  proposalVersion: row.proposal_version,
-  created_at: row.created_at,
-  confirmed_at: row.confirmed_at ?? null,
-});
-const normalizeTaskInput = (value) => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('body 必须是对象');
-  const out = {};
-  if (value.title !== undefined) {
-    if (typeof value.title !== 'string' || !value.title.trim()) throw new Error('title 不能为空');
-    if (value.title.trim().length > 200) throw new Error('title 最多200个字');
-    out.title = value.title.trim();
-  }
-  if (value.detail !== undefined) {
-    if (typeof value.detail !== 'string') throw new Error('detail 必须是字符串');
-    if (value.detail.length > 2000) throw new Error('detail 最多2000字');
-    out.detail = value.detail;
-  }
-  return out;
-};
-const getTask = (projectId, taskId) => db.prepare('SELECT * FROM tasks WHERE id = ? AND project_id = ?').get(taskId, projectId);
+// 步骤4任务确认门:领域函数已搬到 tasks.js,路由与对话动作共用
 const insertMessage = (projectId, author, text) =>
   Number(db.prepare('INSERT INTO messages (project_id, author, text, created_at) VALUES (?, ?, ?, ?)').run(projectId, author, text, now()).lastInsertRowid);
 const readMessages = (projectId) =>
@@ -199,11 +165,14 @@ const generateReply = async (projectId) => {
   const history = readMessages(projectId);
   const memory = readConsensus(projectId);
   const digest = [...memory.facts, ...memory.decisions].slice(0, 10).map((item) => `·${item.text}`).join('\n').slice(0, 600);
-  const { text, usage } = await callModel({ config, messages: buildMessages(buildSystemPrompt(digest), history) });
+  const pending = pendingText(db, projectId);
+  const { text, usage } = await callModel({ config, messages: buildMessages(buildSystemPrompt(digest, pending), history) });
   db.prepare('INSERT INTO model_usage (project_id, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?)').run(projectId, config.name, usage.promptTokens, usage.completionTokens, now());
   // 记忆提取:AI【记住】块 -> 自动入库(静默,无附注);同主题冲突自动过期旧条目
   const marked = extractMarked(text, MEMORY_START, MEMORY_ENDS);
-  const reply = honestReply(marked.stripped);
+  // 对话动作:【提议/确认/取消/修订】块 -> 建方案/确认/取消/修订,块一律剥掉不显示,失败才追加诚实提示
+  const acted = applyDialogueActions(db, projectId, marked.stripped);
+  const reply = honestReply(acted.text) + (acted.notes.length ? `\n${acted.notes.join('\n')}` : '');
   const assistantId = insertMessage(projectId, 'assistant', reply);
   let memoryUpdated = 0;
   if (marked.items.length) {
@@ -362,15 +331,12 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '任务格式错误' });
       }
-      const taskId = Number(db.prepare('INSERT INTO tasks (project_id, title, detail, created_at) VALUES (?, ?, ?, ?)').run(id, input.title, input.detail ?? '', now()).lastInsertRowid);
-      return send(res, 201, { ok: true, task: toTaskJson(getTask(id, taskId)) });
+      const task = createTask(db, id, { title: input.title, detail: input.detail ?? '' });
+      return send(res, 201, { ok: true, task: toTaskJson(task) });
     }
     const taskOne = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks\/(\d+)$/);
     if (req.method === 'PUT' && taskOne) {
       const id = Number(taskOne[1]);
-      const task = getTask(id, Number(taskOne[2]));
-      if (!task) return send(res, 404, { ok: false, error: '任务不存在' });
-      if (task.status !== 'proposed') return send(res, 409, { ok: false, error: '任务已确认,不能再改方案(请另建新任务)', status: task.status });
       let input;
       try {
         input = normalizeTaskInput(JSON.parse((await readBody(req)) || '{}'));
@@ -378,23 +344,29 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '任务格式错误' });
       }
-      db.prepare('UPDATE tasks SET title = ?, detail = ?, proposal_version = proposal_version + 1 WHERE id = ?').run(
-        input.title ?? task.title, input.detail ?? task.detail, task.id);
-      return send(res, 200, { ok: true, task: toTaskJson(getTask(id, task.id)) });
+      const revised = reviseTask(db, id, Number(taskOne[2]), input);
+      if (!revised.ok && revised.code === 'NOT_FOUND') return send(res, 404, { ok: false, error: '任务不存在' });
+      if (!revised.ok) return send(res, 409, { ok: false, error: '任务已确认,不能再改方案(请另建新任务)', status: revised.status });
+      return send(res, 200, { ok: true, task: toTaskJson(revised.task) });
     }
     const taskConfirm = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks\/(\d+)\/confirm$/);
     if (req.method === 'POST' && taskConfirm) {
       const id = Number(taskConfirm[1]);
-      const task = getTask(id, Number(taskConfirm[2]));
-      if (!task) return send(res, 404, { ok: false, error: '任务不存在' });
       const body = JSON.parse((await readBody(req)) || '{}');
       if (!Number.isInteger(body.proposalVersion)) return send(res, 400, { ok: false, error: 'body 必须是 {proposalVersion:整数}' });
-      if (body.proposalVersion !== task.proposal_version) {
-        return send(res, 409, { ok: false, error: '方案已更新,请按最新版本确认', status: task.status, currentVersion: task.proposal_version });
+      const result = confirmTask(db, id, Number(taskConfirm[2]), body.proposalVersion);
+      if (!result.ok && result.code === 'NOT_FOUND') return send(res, 404, { ok: false, error: '任务不存在' });
+      if (!result.ok && result.code === 'STALE') {
+        return send(res, 409, { ok: false, error: '方案已更新,请按最新版本确认', status: result.status, currentVersion: result.currentVersion });
       }
-      if (task.status === 'confirmed') return send(res, 200, { ok: true, idempotent: true, task: toTaskJson(task) });
-      db.prepare("UPDATE tasks SET status = 'confirmed', confirmed_at = ? WHERE id = ?").run(now(), task.id);
-      return send(res, 200, { ok: true, idempotent: false, task: toTaskJson(getTask(id, task.id)) });
+      if (!result.ok) return send(res, 409, { ok: false, error: '任务已取消,不能确认', status: result.status });
+      return send(res, 200, { ok: true, idempotent: result.idempotent, task: toTaskJson(result.task) });
+    }
+    const taskCancel = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks\/(\d+)\/cancel$/);
+    if (req.method === 'POST' && taskCancel) {
+      const result = cancelTask(db, Number(taskCancel[1]), Number(taskCancel[2]));
+      if (!result.ok) return send(res, 404, { ok: false, error: '任务不存在' });
+      return send(res, 200, { ok: true, idempotent: result.idempotent, task: toTaskJson(result.task) });
     }
 
     // 7) 统一对话:用户消息存档(重试去重) -> 真实模型 -> 诚实性网关 -> 存档返回
