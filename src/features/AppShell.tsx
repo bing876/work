@@ -5,7 +5,7 @@ import {
   PencilSimple,
   X,
 } from '@phosphor-icons/react';
-import type { AgentSummary, Artifact, ConversationSummary, Message, ModelOption, Project, RailSection, Task, WorkbenchBootstrap, WorkbenchClient } from '../client/workbench-client';
+import type { AgentSummary, ConversationSummary, Message, ModelOption, Project, RailSection, WorkbenchBootstrap, WorkbenchClient } from '../client/workbench-client';
 import avatar1 from '../assets/prototype/avatar-1.png';
 import avatar2 from '../assets/prototype/avatar-2.png';
 import avatar3 from '../assets/prototype/avatar-3.png';
@@ -33,7 +33,6 @@ import tokenRing from '../assets/prototype/icon-token-ring.svg';
 import voiceIcon from '../assets/prototype/icon-voice.svg';
 import { projectAvatarAsset } from '../assets/project-avatars';
 import { CreateProjectDialog } from './CreateProjectDialog';
-import { ProjectDossier } from './ProjectDossier';
 import type { CreateProjectInput } from '../client/workbench-client';
 
 type ShellState = { data: WorkbenchBootstrap; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
@@ -181,7 +180,7 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
         <div className="splitter" role="separator" tabIndex={state.collapsed ? -1 : 0} aria-hidden={state.collapsed} aria-orientation="vertical" aria-label="调整侧边栏宽度" aria-valuemin={250} aria-valuemax={310} aria-valuenow={sidebarWidth} onPointerDown={resizeSidebar} onKeyDown={resizeSidebarByKeyboard} onDoubleClick={() => update({ sidebarWidth: 250 })} />
 
         <section className="main-area" aria-label="工作区">
-          <Conversation messages={state.data.messages[state.conversationId] ?? []} agent={agent} project={project} tasks={state.data.tasks.filter((item) => item.projectId === project?.id)} artifacts={state.data.artifacts.filter((item) => item.projectId === project?.id)} />
+          <Conversation messages={state.data.messages[state.conversationId] ?? []} agent={agent} />
           <Composer state={state} dispatch={dispatch} client={client} conversation={conversation} selectedModel={selectedModel} />
         </section>
         {state.createProjectDialogOpen && <CreateProjectDialog onClose={() => update({ createProjectDialogOpen: false })} onCreate={onCreateProject} />}
@@ -216,22 +215,10 @@ function ContactRow({ conversation, agent, avatar, selected, onClick }: { conver
   </button>;
 }
 
-function Conversation({ messages, agent, project, tasks, artifacts }: { messages: Message[]; agent?: AgentSummary; project?: Project; tasks: Task[]; artifacts: Artifact[] }) {
-  if (!messages.length && !project) return <section className="chat-area empty-conversation" aria-label="空白对话" />;
+function Conversation({ messages, agent }: { messages: Message[]; agent?: AgentSummary }) {
+  if (!messages.length) return <section className="chat-area empty-conversation" aria-label="空白对话" />;
   return <section className="chat-area" aria-label="对话">
-    {project && <ProjectDossier key={project.id} project={project} messages={messages} />}
-    {project && <ProjectExperience project={project} tasks={tasks} artifacts={artifacts} />}
     {messages.map((message) => <MessageView key={message.id} message={message} agent={agent} />)}
-  </section>;
-}
-
-function ProjectExperience({ project, tasks, artifacts }: { project: Project; tasks: Task[]; artifacts: Artifact[] }) {
-  const status = project.status === 'completed' ? '已完成' : project.status === 'planning' ? '规划中' : '执行中';
-  const taskStatus = (value: Task['status']) => value === 'completed' ? '已完成' : value === 'running' ? '执行中' : '待执行';
-  return <section className="project-experience" aria-label="项目执行状态">
-    <header><span><b>{project.template === 'launch' ? '新品发布工作流' : '项目工作流'}</b><small>{project.name}</small></span><em data-state={project.status}>{status}</em></header>
-    <div className="experience-section"><strong>任务执行</strong>{tasks.map((task) => <div className="task-row" key={task.id}><span><b>{task.title}</b><small>{task.detail}</small></span><em data-state={task.status}>{taskStatus(task.status)}</em></div>)}</div>
-    <div className="experience-section"><strong>文件结果</strong>{artifacts.map((artifact) => <div className="artifact-row" key={artifact.id} data-ready={artifact.status === 'ready'}><span><b>{artifact.name}</b><small>{artifact.kind} · {artifact.summary}</small></span><em>{artifact.status === 'ready' ? '已就绪' : '生成中'}</em></div>)}</div>
   </section>;
 }
 

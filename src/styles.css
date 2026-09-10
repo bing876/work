@@ -187,20 +187,6 @@ body { margin: 0; min-width: 980px; min-height: 760px; overflow: hidden; backgro
 .main-area { position: relative; z-index: 1; grid-column: 4; min-width: 0; background: transparent; }
 .chat-area { position: absolute; top: 56px; right: 6px; bottom: 78px; left: 0; display: flex; flex-direction: column; gap: 24px; overflow: auto; padding: 24px 28px 28px; scrollbar-color: rgba(255,255,255,.2) transparent; scrollbar-width: thin; }
 .empty-conversation { display: block; }
-.project-experience { width: min(680px, 100%); padding: 14px; border: 1px solid rgba(255,255,255,.10); border-radius: 14px; background: rgba(255,255,255,.045); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
-.project-experience header, .task-row, .artifact-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.project-experience header { padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,.09); }
-.project-experience header span, .task-row span, .artifact-row span { display: grid; min-width: 0; gap: 3px; }
-.project-experience b { overflow: hidden; color: rgba(255,255,255,.92); font-size: 13px; font-weight: 620; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.project-experience small { overflow: hidden; color: rgba(255,255,255,.48); font-size: 11px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.project-experience em { flex: none; padding: 3px 7px; border-radius: 99px; background: rgba(255,255,255,.09); color: rgba(255,255,255,.62); font-size: 10px; font-style: normal; line-height: 14px; }
-.project-experience em[data-state="executing"], .project-experience em[data-state="running"] { background: rgba(91,157,255,.18); color: #a9ceff; }
-.project-experience em[data-state="completed"] { background: rgba(52,199,89,.16); color: #9ce4af; }
-.experience-section { display: grid; gap: 2px; padding-top: 12px; }
-.experience-section > strong { margin-bottom: 3px; color: rgba(255,255,255,.48); font-size: 10px; font-weight: 650; letter-spacing: .5px; }
-.task-row, .artifact-row { min-height: 40px; padding: 5px 0; border-top: 1px solid rgba(255,255,255,.055); }
-.task-row em { background: rgba(255,255,255,.07); }
-.artifact-row[data-ready="true"] em { background: rgba(52,199,89,.14); color: #9ce4af; }
 .message { display: flex; max-width: 76%; gap: 10px; }
 .message.user { align-self: flex-end; flex-direction: row-reverse; }
 .message.assistant { align-self: flex-start; }
@@ -349,19 +335,3 @@ body { margin: 0; min-width: 980px; min-height: 760px; overflow: hidden; backgro
   .frame { inset: 12px 18px; width: auto; height: auto; transform: none; }
   .chat-area { padding-right: 20px; }
 }
-.project-dossier { width: min(680px, 100%); padding: 14px; border: 1px solid rgba(255,255,255,.10); border-radius: 14px; background: rgba(255,255,255,.045); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
-.project-dossier header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,.09); }
-.project-dossier header span { display: grid; min-width: 0; gap: 3px; }
-.project-dossier b { color: rgba(255,255,255,.92); font-size: 13px; font-weight: 620; line-height: 18px; }
-.project-dossier small { overflow: hidden; color: rgba(255,255,255,.48); font-size: 11px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.project-dossier em { flex: none; padding: 3px 7px; border-radius: 99px; background: rgba(91,157,255,.18); color: #a9ceff; font-size: 10px; font-style: normal; line-height: 14px; }
-.project-dossier em.done { background: rgba(52,199,89,.16); color: #9ce4af; }
-.dossier-hint { margin: 12px 0 0; color: rgba(255,255,255,.58); font-size: 12px; line-height: 18px; }
-.dossier-example { margin: 10px 0 0; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,.12); color: rgba(255,255,255,.66); font-size: 12px; line-height: 18px; }
-.dossier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin: 12px 0 0; padding: 0; }
-.dossier-grid div { min-width: 0; }
-.dossier-grid dt { color: rgba(255,255,255,.48); font-size: 10px; line-height: 14px; }
-.dossier-grid dd { margin: 2px 0 0; color: rgba(255,255,255,.90); font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
-.dossier-plan { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.09); }
-.dossier-plan strong { color: rgba(255,255,255,.66); font-size: 11px; }
-.dossier-plan pre { margin: 6px 0 0; color: rgba(255,255,255,.85); font-size: 12px; line-height: 19px; white-space: pre-wrap; font-family: inherit; }

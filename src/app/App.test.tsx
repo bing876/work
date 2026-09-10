@@ -73,7 +73,7 @@ describe('Phase 0.7 project rail and sidebar', () => {
     const sidebarProjects = within(screen.getByLabelText('上下文和会话')).getAllByRole('button').filter((button) => button.classList.contains('contact-item')).slice(-3).map((button) => button.textContent);
     expect(sidebarProjects).toEqual([expect.stringContaining('春季新品发布'), expect.stringContaining('项目一'), expect.stringContaining('项目二')]);
     expect(screen.getByRole('button', { name: /项目一/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(screen.getByRole('region', { name: '项目执行状态' })).getByText('项目一')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: '对话' })).getByText(/我是您的AI产品经理/)).toBeInTheDocument();
   });
 });
 
