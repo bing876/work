@@ -16,7 +16,7 @@ import { ModelError, callModel, loadModelConfig } from './model.js';
 import { buildMessages, buildSystemPrompt } from './prompts.js';
 import { TASKS_DDL, cancelTask, confirmTask, createTask, normalizeTaskInput, pendingText, reviseTask, toTaskJson } from './tasks.js';
 import { applyDialogueActions } from './actions.js';
-import { USERS_DDL, findUserByPhone, normalizeCoordinate, normalizePhone, registerUser, requestCode, signToken, toUserJson, verifyCode, verifyToken } from './auth.js';
+import { USERS_DDL, findUserByCoordinate, findUserByPhone, normalizeCoordinate, normalizePhone, registerUser, requestCode, signToken, toUserJson, verifyCode, verifyToken } from './auth.js';
 import { serveStatic } from './static.js';
 import { MEMORY_ENDS, MEMORY_START, applyCorrect, buildSummary, defaultConsensus, detectUserGuess, extractMarked, guessDecision, makeItem, saveRemembered } from './consensus.js';
 
@@ -232,7 +232,7 @@ const server = createServer(async (req, res) => {
       if (!userId) return send(res, 401, { ok: false, error: '未登录或登录已过期,请先登录', code: 'UNAUTHORIZED' });
     }
 
-    // 2) 账号:发码(开发固定码)/手机码登录(自动注册)/账号登录(手机号+坐标号)/我
+    // 2) 账号:发码(开发固定码)/手机码登录(自动注册)/账号登录(坐标号+手机号)/我
     if (req.method === 'POST' && url.pathname === '/api/auth/code') {
       let phone;
       try {
@@ -267,7 +267,7 @@ const server = createServer(async (req, res) => {
           if (!user) return send(res, 500, { ok: false, error: '注册失败,请重试' });
         }
       }
-      return send(res, 200, { ok: true, token: signToken(user.id), registered, user: toUserJson(user), ...(registered ? { message: '已自动注册,坐标号即登录密码,请牢记' } : {}) });
+      return send(res, 200, { ok: true, token: signToken(user.id), registered, user: toUserJson(user), ...(registered ? { message: '已自动注册,坐标号即登录账号,请牢记' } : {}) });
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/login-account') {
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -279,9 +279,9 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '账号错误' });
       }
-      const user = findUserByPhone(db, phone);
-      if (!user) return send(res, 401, { ok: false, error: '该手机号尚未注册,请用验证码登录', code: 'NO_SUCH_PHONE' });
-      if (user.coordinate_id !== cid) return send(res, 401, { ok: false, error: '坐标号不正确,请检查后重试', code: 'BAD_COORDINATE' });
+      const user = findUserByCoordinate(db, cid);
+      if (!user) return send(res, 401, { ok: false, error: '坐标号不存在,请检查后重试', code: 'NO_SUCH_ID' });
+      if (user.phone !== phone) return send(res, 401, { ok: false, error: '手机号不正确,请检查后重试', code: 'BAD_PHONE' });
       return send(res, 200, { ok: true, token: signToken(user.id), user: toUserJson(user) });
     }
     if (req.method === 'GET' && url.pathname === '/api/auth/me') {

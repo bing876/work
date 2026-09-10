@@ -1,4 +1,4 @@
-// 用户账号:手机号=账号,坐标号=密码。JWT(HS256)、验证码(开发固定码,短信商预留)。零依赖,只用 node:crypto。
+// 用户账号:坐标号=账号,手机号=密码。JWT(HS256)、验证码(开发固定码,短信商预留)。零依赖,只用 node:crypto。
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const USERS_DDL = `
@@ -11,7 +11,7 @@ export const USERS_DDL = `
 `;
 const now = () => new Date().toISOString();
 export const DEV_CODE = '123456';
-export const COORD_START = 1000;
+export const COORD_START = 10000;
 
 // ---- 手机号/坐标号格式 ----
 export const normalizePhone = (phone) => {
@@ -77,9 +77,9 @@ export const verifyCode = (phone, code) => {
 export const toUserJson = (row) => ({ id: row.id, phone: row.phone, coordinateId: row.coordinate_id, created_at: row.created_at });
 export const findUserByPhone = (db, phone) => db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
 export const findUserByCoordinate = (db, cid) => db.prepare('SELECT * FROM users WHERE coordinate_id = ?').get(cid);
-// 分配坐标号:随机抽号(XYZ + 4位起,撞号自动重抽;4位抽满升5位,以此类推);分配后永久不变
+// 分配坐标号:随机抽号(XYZ + 5位起,撞号自动重抽;5位抽满升6位,以此类推);分配后永久不变
 export const allocateCoordinate = (db) => {
-  for (const width of [4, 5, 6, 7, 8]) {
+  for (const width of [5, 6, 7, 8]) {
     const min = 10 ** (width - 1);
     const max = 10 ** width - 1;
     for (let attempt = 0; attempt < 20; attempt++) {
