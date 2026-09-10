@@ -1,4 +1,4 @@
-// 登录弹窗:左海报(占满+箭头切换)+右表单。逻辑:默认账号密码登录(坐标号=账号,手机号=密码),
+// 登录弹窗:左海报(占满+箭头切换)+右表单。逻辑:默认账号密码登录(手机号=账号,坐标号=密码),
 // 点注册切验证码登录(新手机号自动获配坐标号)。海报配置见 login-posters.ts。
 import { useEffect, useState } from 'react';
 import { loginAccount, loginPhone, requestCode, saveToken, saveUser } from '../client/auth';
@@ -99,12 +99,12 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
               </div>
               {mode === 'account' ? (
                 <>
+                  <label className="login-box"><span className="login-visually-hidden">手机号</span><input aria-label="手机号" inputMode="numeric" autoComplete="username" placeholder="请输入手机号" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
                   <div className="login-box login-xyz">
                     <span className="login-xyz-prefix" aria-hidden="true">XYZ</span>
-                    <span className="login-visually-hidden">坐标号</span><input aria-label="坐标号" inputMode="numeric" autoComplete="username" placeholder="请输入数字部分" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
+                    <span className="login-visually-hidden">坐标号</span><input aria-label="坐标号" inputMode="numeric" autoComplete="current-password" placeholder="请输入数字部分" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
                   </div>
-                  <label className="login-box"><span className="login-visually-hidden">手机号</span><input aria-label="手机号" inputMode="numeric" autoComplete="current-password" placeholder="请输入手机号" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-                  <p className="login-hint">坐标号就是账号,手机号就是密码。</p>
+                  <p className="login-hint">手机号就是账号,坐标号就是密码。</p>
                 </>
               ) : (
                 <>

@@ -38,22 +38,22 @@ describe('LoginCard 登录弹窗', () => {
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === '/api/auth/login-account') {
         sentBody = String(init?.body ?? '');
-        const body = JSON.parse(sentBody) as { phone: string };
-        if (body.phone === '13800000001') return Promise.resolve(jsonResponse({ ok: true, token: 'tok-2', user }));
-        return Promise.resolve(jsonResponse({ ok: false, error: '手机号不正确,请检查后重试', code: 'BAD_PHONE' }, 401));
+        const body = JSON.parse(sentBody) as { coordinateId: string };
+        if (body.coordinateId === 'XYZ52420') return Promise.resolve(jsonResponse({ ok: true, token: 'tok-2', user }));
+        return Promise.resolve(jsonResponse({ ok: false, error: '坐标号不正确,请检查后重试', code: 'BAD_COORDINATE' }, 401));
       }
       throw new Error(`unexpected fetch ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
     const onAuthed = vi.fn();
     render(<LoginCard onAuthed={onAuthed} />);
-    fireEvent.change(screen.getByLabelText('坐标号'), { target: { value: '52420' } });
-    fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13900000000' } });
-    fireEvent.click(screen.getByRole('button', { name: '登录' }));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('手机号不正确'));
-    expect(JSON.parse(sentBody)).toMatchObject({ coordinateId: 'XYZ52420' });
-    expect(onAuthed).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800000001' } });
+    fireEvent.change(screen.getByLabelText('坐标号'), { target: { value: '00000' } });
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('坐标号不正确'));
+    expect(JSON.parse(sentBody)).toMatchObject({ phone: '13800000001', coordinateId: 'XYZ00000' });
+    expect(onAuthed).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('坐标号'), { target: { value: '52420' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(onAuthed).toHaveBeenCalled());
     expect(localStorage.getItem('dimspace-token')).toBe('tok-2');

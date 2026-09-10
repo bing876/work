@@ -16,8 +16,8 @@ node server/index.mjs
 |---|---|---|
 | GET | `/health` | 健康检查,返回 `{"ok":true,...}` |
 | POST | `/api/auth/code` | 发验证码,Body `{"phone":"..."}`；开发阶段固定返回 123456(短信商预留) |
-| POST | `/api/auth/login-phone` | 手机+验证码登录,Body `{"phone","code"}`；未注册自动注册(随机配 5 位起 XYZ 坐标号,坐标号即登录账号)；返回 `{token,registered,user}` |
-| POST | `/api/auth/login-account` | 账号登录,Body `{"phone","coordinateId"}`(坐标号=账号,手机号=密码,大小写不敏感)；号不存在/手机不对各有明确 401 |
+| POST | `/api/auth/login-phone` | 手机+验证码登录,Body `{"phone","code"}`；未注册自动注册(随机配 5 位起 XYZ 坐标号,坐标号即登录密码)；返回 `{token,registered,user}` |
+| POST | `/api/auth/login-account` | 账号登录,Body `{"phone","coordinateId"}`(手机号=账号,坐标号=密码,大小写不敏感)；未注册/号不对各有明确 401 |
 | GET | `/api/auth/me` | (需登录)当前身份 |
 | GET | `/api/projects` | 项目列表(含 `profile`/`plan`,未生成为 `null`) |
 | POST | `/api/projects` | 创建项目,Body `{"name":"xxx","initialMessage":"..."}`(后者可选,视为访谈第1个回答)；自动写入 AI 开场白,返回 `messages` |

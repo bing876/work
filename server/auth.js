@@ -1,4 +1,4 @@
-// 用户账号:坐标号=账号,手机号=密码。JWT(HS256)、验证码(开发固定码,短信商预留)。零依赖,只用 node:crypto。
+// 用户账号:手机号=账号,坐标号=密码。JWT(HS256)、验证码(开发固定码,短信商预留)。零依赖,只用 node:crypto。
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const USERS_DDL = `
