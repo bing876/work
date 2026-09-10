@@ -1,4 +1,4 @@
-import type { AgentSummary, AgentTurn, Artifact, ConfirmConsensusInput, Consensus, CreateProjectInput, CreateProjectResult, Message, Project, SendMessageInput, Task, UpdateProjectProfileInput, WorkbenchBootstrap, WorkbenchClient } from './workbench-client';
+import type { AgentSummary, AgentTurn, Artifact, Consensus, CorrectConsensusInput, CreateProjectInput, CreateProjectResult, Message, Project, SendMessageInput, Task, UpdateProjectProfileInput, WorkbenchBootstrap, WorkbenchClient } from './workbench-client';
 import { defaultProjectAvatar } from '../assets/project-avatars';
 
 const initial: WorkbenchBootstrap = {
@@ -289,10 +289,10 @@ export class MockWorkbenchClient implements WorkbenchClient {
 
   // Mock 冻结:共识返回空结构,不镜像后端规则
   async getConsensus(): Promise<Consensus> {
-    return { version: 1, goal: null, facts: [], suggestions: [], openQuestions: [], decisions: [] };
+    return { version: 2, goal: null, facts: [], suggestions: [], openQuestions: [], decisions: [], history: [] };
   }
 
-  async confirmConsensus(_input: ConfirmConsensusInput): Promise<Consensus> {
+  async correctConsensus(_input: CorrectConsensusInput): Promise<Consensus> {
     return this.getConsensus();
   }
 

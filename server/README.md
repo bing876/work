@@ -20,7 +20,8 @@ node server/index.mjs
 | GET | `/api/projects/:id` | 单个项目 |
 | PUT | `/api/projects/:id` | 保存商品资料(任务4改档案复用),Body `{"profile":{6个字符串字段,单个最多2000字}}` |
 | GET | `/api/projects/:id/messages` | 全部消息(老项目自动补开场白) |
-| GET/PUT | `/api/projects/:id/consensus` | 项目共识四区；PUT 只支持 `{op:'confirm',id,as:'fact'/'decision'}` 确认移动 |
+| GET/PUT | `/api/projects/:id/consensus` | 项目记忆(事实/决定/历史)；PUT 只支持 `{op:'correct',id,text}` 纠正 |
+| GET | `/api/projects/:id/summary` | 记忆摘要：记住什么 + 哪些可能不准(前端快捷键入口后续加) |
 | POST | `/api/projects/:id/chat` | AI 对话,Body `{"text":"..."}`；返回 `{mode,reply,done,project}`；模型失败时明确报错+可重试(503 未配置/429 超预算/504 超时/502 调用失败) |
 
 提示词见 `server/prompts.js`,行业模板见 `server/templates/`,后端硬规则见 `server/policy.js`。

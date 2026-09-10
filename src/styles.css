@@ -354,3 +354,10 @@ body { margin: 0; min-width: 980px; min-height: 760px; overflow: hidden; backgro
 .consensus-group li button:disabled { opacity: 0.5; cursor: default; }
 .consensus-empty { color: #9ca3af; font-size: 12px; }
 .consensus-hint { margin: 0; font-size: 11px; color: #9ca3af; }
+
+/* 记忆 v2:只读档案 + 悬停纠正(只追加,不改旧规则) */
+.consensus-correct { display: none; }
+.consensus-group li:hover .consensus-correct, .consensus-group li:focus-within .consensus-correct { display: inline-block; }
+.consensus-edit { display: flex; gap: 6px; flex: 1; }
+.consensus-edit input { flex: 1; font-size: 12px; padding: 2px 6px; border: 1px solid #93c5fd; border-radius: 6px; }
+.consensus-date { flex: none; font-size: 11px; color: #9ca3af; }

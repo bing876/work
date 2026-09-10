@@ -3,8 +3,8 @@
 import type {
   AgentSummary,
   AgentTurn,
-  ConfirmConsensusInput,
   Consensus,
+  CorrectConsensusInput,
   ConversationSummary,
   CreateProjectInput,
   CreateProjectResult,
@@ -193,13 +193,13 @@ export class HttpWorkbenchClient implements WorkbenchClient {
     return data.consensus;
   }
 
-  async confirmConsensus(input: ConfirmConsensusInput): Promise<Consensus> {
+  async correctConsensus(input: CorrectConsensusInput): Promise<Consensus> {
     const match = input.projectId.match(/^srv-(\d+)$/);
-    if (!match) throw new Error('该项目不是后端项目,不支持确认共识');
+    if (!match) throw new Error('该项目不是后端项目,不支持纠正记忆');
     const data = await this.request<{ consensus: Consensus }>(`/api/projects/${match[1]}/consensus`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ op: 'confirm', id: input.id, as: input.as }),
+      body: JSON.stringify({ op: 'correct', id: input.id, text: input.text }),
     });
     return data.consensus;
   }

@@ -16,7 +16,7 @@ describe('HttpWorkbenchClient', () => {
         return Promise.resolve(jsonResponse({ ok: true, messages: [msg(1, 'assistant', '您好！我是您的AI产品经理')] }));
       }
       if (url === '/api/projects/1/consensus') {
-        return Promise.resolve(jsonResponse({ ok: true, consensus: { version: 1, goal: null, facts: [], suggestions: [], openQuestions: [], decisions: [] } }));
+        return Promise.resolve(jsonResponse({ ok: true, consensus: { version: 2, goal: null, facts: [], suggestions: [], openQuestions: [], decisions: [], history: [] } }));
       }
       throw new Error(`unexpected fetch ${url}`);
     });
@@ -28,7 +28,7 @@ describe('HttpWorkbenchClient', () => {
     expect(data.conversations).toHaveLength(1);
     expect(data.conversations[0]).toMatchObject({ id: 'conv-srv-1', title: '云南白茶' });
     expect(data.messages['conv-srv-1']).toHaveLength(1);
-    expect(data.consensus['srv-1']).toMatchObject({ version: 1 });
+    expect(data.consensus['srv-1']).toMatchObject({ version: 2 });
     expect(data.messages['conv-srv-1'][0]).toMatchObject({ id: 'srv-msg-1', author: 'assistant' });
     expect(data.models.length).toBeGreaterThan(0);
   });
@@ -105,19 +105,19 @@ describe('HttpWorkbenchClient.updateProjectProfile', () => {
 });
 
 describe('HttpWorkbenchClient consensus', () => {
-  const empty = { version: 1, goal: null, facts: [], suggestions: [], openQuestions: [], decisions: [] };
+  const empty = { version: 2, goal: null, facts: [], suggestions: [], openQuestions: [], decisions: [], history: [] };
   it('读取共识走 GET /consensus', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, consensus: empty }));
     vi.stubGlobal('fetch', fetchMock);
-    await expect(new HttpWorkbenchClient().getConsensus('srv-1')).resolves.toMatchObject({ version: 1 });
+    await expect(new HttpWorkbenchClient().getConsensus('srv-1')).resolves.toMatchObject({ version: 2 });
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/1/consensus', undefined);
   });
-  it('确认走 PUT confirm 并返回新区', async () => {
-    const next = { ...empty, facts: [{ id: 'c1', text: '先做代发', kind: 'fact', origin: 'ai', status: 'confirmed', source: { messageId: 1 }, updatedAt: '' }] };
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, moved: true, consensus: next }));
+  it('纠正走 PUT correct 并返回新区', async () => {
+    const next = { ...empty, facts: [{ id: 'c2', text: '预算一万', kind: 'decision', origin: 'ai', confidence: 'high', status: 'decided', source: { messageId: 1 }, updatedAt: '' }] };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, corrected: true, consensus: next }));
     vi.stubGlobal('fetch', fetchMock);
-    const result = await new HttpWorkbenchClient().confirmConsensus({ projectId: 'srv-1', id: 'c1', as: 'fact' });
-    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ op: 'confirm', id: 'c1', as: 'fact' });
+    const result = await new HttpWorkbenchClient().correctConsensus({ projectId: 'srv-1', id: 'c1', text: '预算一万' });
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ op: 'correct', id: 'c1', text: '预算一万' });
     expect(result.facts).toHaveLength(1);
   });
   it('非后端项目直接拒绝', async () => {

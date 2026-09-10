@@ -15,7 +15,7 @@ import { honestReply } from './policy.js';
 import { ModelError, callModel, loadModelConfig } from './model.js';
 import { buildMessages, buildSystemPrompt } from './prompts.js';
 import { serveStatic } from './static.js';
-import { appendUnique, applyConfirm, defaultConsensus, detectUserGuess, extractMarked, makeItem } from './consensus.js';
+import { applyCorrect, buildSummary, defaultConsensus, detectUserGuess, extractMarked, guessDecision, makeItem, saveRemembered } from './consensus.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 // 最小 .env 读取:只认 MODEL_* 键,已有环境变量优先;测试(DB_FILE=临时库)时跳过,保证 hermetic
@@ -135,14 +135,14 @@ const readConsensus = (projectId) => {
 const writeConsensus = (projectId, consensus) => {
   db.prepare('UPDATE projects SET consensus_json = ? WHERE id = ?').run(JSON.stringify(consensus), projectId);
 };
-// 用户推测记录:"也许/可能"类只进建议区(要求2),返回是否新增
-const recordUserGuess = (projectId, userId, text) => {
+// 用户记忆:推测类自动入库(标低置信度,摘要里提示可能不准);同主题冲突自动过期旧条目
+const recordUserMemory = (projectId, userId, text) => {
   const guess = detectUserGuess(text);
   if (!guess) return false;
   const consensus = readConsensus(projectId);
-  const added = appendUnique(consensus.suggestions, makeItem({ text, kind: guess.kind, origin: 'user-guess', messageId: userId }));
-  if (added) writeConsensus(projectId, consensus);
-  return added;
+  const result = saveRemembered(consensus, makeItem({ text, kind: guess.kind, origin: 'user-guess', messageId: userId, confidence: 'low' }));
+  if (result !== 'duplicate') writeConsensus(projectId, consensus);
+  return result !== 'duplicate';
 };
 // 重试去重:同一句话连发且上一条还没有 AI 回复时,不重复存档(重试按钮重发不会产生两条用户消息)
 const shouldSkipUserInsert = (projectId, text) => {
@@ -150,7 +150,7 @@ const shouldSkipUserInsert = (projectId, text) => {
   return !!last && last.author === 'user' && last.text === text;
 };
 // 为项目生成一条 AI 回复:查预算 -> 组装历史 -> 调模型 -> 记用量 -> 诚实性网关 -> 存档
-// 失败抛 ModelError,调用方转成明确报错+可重试,绝不伪装;成功返回 {reply, consensusAdded}
+// 失败抛 ModelError,调用方转成明确报错+可重试,绝不伪装;成功返回 {reply, memoryUpdated}
 const generateReply = async (projectId) => {
   const config = loadModelConfig();
   if (!config.apiKey) throw new ModelError('MODEL_NOT_CONFIGURED', '模型未配置:缺少 MODEL_API_KEY。请在后端环境变量(或 Secrets)中配置后重启服务再试', true);
@@ -159,34 +159,24 @@ const generateReply = async (projectId) => {
     if (used >= config.budgetTokens) throw new ModelError('MODEL_BUDGET_EXCEEDED', `已超模型预算(累计 ${used}/${config.budgetTokens} tokens)。请提高 MODEL_BUDGET_TOKENS 后重试`, true);
   }
   const history = readMessages(projectId);
-  const { text, usage } = await callModel({ config, messages: buildMessages(buildSystemPrompt(), history) });
+  const memory = readConsensus(projectId);
+  const digest = [...memory.facts, ...memory.decisions].slice(0, 10).map((item) => `·${item.text}`).join('\n').slice(0, 600);
+  const { text, usage } = await callModel({ config, messages: buildMessages(buildSystemPrompt(digest), history) });
   db.prepare('INSERT INTO model_usage (project_id, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?)').run(projectId, config.name, usage.promptTokens, usage.completionTokens, now());
-  // 共识提取:AI标记块 -> 建议区/待确认区;展示文本去掉整块,只留附注
-  const sug = extractMarked(text, '【共识建议】', '【共识建议结束】');
-  const que = extractMarked(sug.stripped, '【待确认】', '【待确认结束】');
-  let reply = honestReply(que.stripped);
-  let added = 0;
-  if (sug.items.length || que.items.length) {
+  // 记忆提取:AI【记住】块 -> 自动入库(静默,无附注);同主题冲突自动过期旧条目
+  const marked = extractMarked(text, '【记住】', '【记住结束】');
+  const reply = honestReply(marked.stripped);
+  const assistantId = insertMessage(projectId, 'assistant', reply);
+  let memoryUpdated = 0;
+  if (marked.items.length) {
     const consensus = readConsensus(projectId);
-    const fresh = [];
-    for (const t of sug.items) {
-      const item = makeItem({ text: t, kind: 'fact', origin: 'ai', messageId: null });
-      if (appendUnique(consensus.suggestions, item)) { fresh.push(item); added++; }
+    for (const t of marked.items) {
+      const kind = guessDecision(t) ? 'decision' : 'fact';
+      if (saveRemembered(consensus, makeItem({ text: t, kind, origin: 'ai', messageId: assistantId })) !== 'duplicate') memoryUpdated++;
     }
-    for (const t of que.items) {
-      const item = makeItem({ text: t, kind: 'fact', origin: 'ai', messageId: null });
-      if (appendUnique(consensus.openQuestions, item)) { fresh.push(item); added++; }
-    }
-    if (added > 0) {
-      reply += `\n\n（已将${added}条记入「项目共识·待确认」，你确认后才会生效。）`;
-      const assistantId = insertMessage(projectId, 'assistant', reply);
-      for (const item of fresh) item.source.messageId = assistantId;
-      writeConsensus(projectId, consensus);
-      return { reply, consensusAdded: added };
-    }
+    if (memoryUpdated > 0) writeConsensus(projectId, consensus);
   }
-  insertMessage(projectId, 'assistant', reply);
-  return { reply, consensusAdded: 0 };
+  return { reply, memoryUpdated };
 };
 
 const now = () => new Date().toISOString();
@@ -241,7 +231,7 @@ const server = createServer(async (req, res) => {
       let modelError;
       if (initial) {
         const userId = insertMessage(id, 'user', initial);
-        recordUserGuess(id, userId, initial);
+        recordUserMemory(id, userId, initial);
         try {
           await generateReply(id);
         } catch (error) {
@@ -291,7 +281,7 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { ok: true, messages: readMessagesWithOpening(id) });
     }
 
-    // 6.5) 项目共识:GET 读取四区;PUT 仅支持 {op:'confirm', id, as} 确认移动(唯一入库通道)
+    // 6.5) 项目记忆:GET 读取;PUT 仅支持 {op:'correct', id, text} 纠正(旧版进历史)
     const consensusRoute = url.pathname.match(/^\/api\/projects\/(\d+)\/consensus$/);
     if (consensusRoute && (req.method === 'GET' || req.method === 'PUT')) {
       const id = Number(consensusRoute[1]);
@@ -299,13 +289,22 @@ const server = createServer(async (req, res) => {
       if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
       if (req.method === 'GET') return send(res, 200, { ok: true, consensus: readConsensus(id) });
       const body = JSON.parse((await readBody(req)) || '{}');
-      if (body.op !== 'confirm' || typeof body.id !== 'string' || (body.as !== 'fact' && body.as !== 'decision')) {
-        return send(res, 400, { ok: false, error: 'body 必须是 {op:\'confirm\', id, as:\'fact\'|\'decision\'}' });
+      if (body.op !== 'correct' || typeof body.id !== 'string' || typeof body.text !== 'string') {
+        return send(res, 400, { ok: false, error: 'body 必须是 {op:\'correct\', id, text}' });
       }
-      const result = applyConfirm(readConsensus(id), body.id, body.as);
+      const result = applyCorrect(readConsensus(id), body.id, body.text);
       if (!result.ok) return send(res, 400, { ok: false, error: result.error });
       writeConsensus(id, result.consensus);
-      return send(res, 200, { ok: true, moved: result.moved, consensus: result.consensus });
+      return send(res, 200, { ok: true, corrected: true, consensus: result.consensus });
+    }
+
+    // 6.6) 记忆摘要(预留接口,前端快捷键入口后续加):记住什么 + 哪些可能不准
+    const summaryRoute = url.pathname.match(/^\/api\/projects\/(\d+)\/summary$/);
+    if (req.method === 'GET' && summaryRoute) {
+      const id = Number(summaryRoute[1]);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
+      return send(res, 200, { ok: true, summary: buildSummary(readConsensus(id)) });
     }
 
     // 7) 统一对话:用户消息存档(重试去重) -> 真实模型 -> 诚实性网关 -> 存档返回
@@ -324,12 +323,12 @@ const server = createServer(async (req, res) => {
       if (text.length > 2000) return send(res, 400, { ok: false, error: 'text 最多2000字' });
       if (!shouldSkipUserInsert(id, text)) {
         const userId = insertMessage(id, 'user', text);
-        recordUserGuess(id, userId, text);
+        recordUserMemory(id, userId, text);
       }
       try {
-        const { reply, consensusAdded } = await generateReply(id);
+        const { reply, memoryUpdated } = await generateReply(id);
         const current = load();
-        return send(res, 200, { ok: true, mode: 'model', reply: { author: 'assistant', text: reply }, done: current.phase === 'done', project: toProjectJson(current), consensus: readConsensus(id), consensusAdded });
+        return send(res, 200, { ok: true, mode: 'model', reply: { author: 'assistant', text: reply }, done: current.phase === 'done', project: toProjectJson(current), consensus: readConsensus(id), memoryUpdated });
       } catch (error) {
         if (error instanceof ModelError) {
           const status = error.code === 'MODEL_NOT_CONFIGURED' ? 503 : error.code === 'MODEL_TIMEOUT' ? 504 : error.code === 'MODEL_BUDGET_EXCEEDED' ? 429 : 502;
