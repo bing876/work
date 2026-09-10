@@ -13,7 +13,7 @@
 1. 打开 https://render.com ，用 GitHub 账号登录。
 2. 点 **New → Blueprint**，选择仓库 `bing876/work`，分支选 **`arena/01a08a13-work`**，点 Apply。
    （仓库根目录的 `render.yaml` 会被自动识别，只有一个服务 `dimspace`。）
-3. 在环境变量页填写 **`MODEL_API_KEY`**（粘贴新 Key），其余保持默认，点 **Deploy**。
+3. 在 Environment 页填写 **`MODEL_API_KEY`**（粘贴新 Key），再加一个 **`AUTH_SECRET`**（随便填一长串乱码，当登录钥匙，改了会导致所有人掉线重登），其余保持默认，点 **Deploy**。
 4. 等待构建完成（约 3–5 分钟，日志最后出现 `listening` 即成功）。
 5. 打开分配的地址（形如 `https://dimspace-xxxx.onrender.com`）。
 

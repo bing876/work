@@ -15,6 +15,11 @@ node server/index.mjs
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | 健康检查,返回 `{"ok":true,...}` |
+| POST | `/api/auth/code` | 发验证码,Body `{"phone":"..."}`；开发阶段固定返回 123456(短信商预留) |
+| POST | `/api/auth/login-phone` | 手机+验证码登录,Body `{"phone","code"}`；未注册自动注册(配 XYZ 坐标号)+提示设密码；返回 `{token,registered,needPassword,user}` |
+| POST | `/api/auth/login-id` | 坐标号+密码登录,Body `{"coordinateId","password"}`(大小写不敏感)；不存在/未设密码/密码错各有明确 401 |
+| POST | `/api/auth/set-password` | (需登录)设密码,Body `{"password":"..."}`(≥6位,scrypt 存哈希) |
+| GET | `/api/auth/me` | (需登录)当前身份 |
 | GET | `/api/projects` | 项目列表(含 `profile`/`plan`,未生成为 `null`) |
 | POST | `/api/projects` | 创建项目,Body `{"name":"xxx","initialMessage":"..."}`(后者可选,视为访谈第1个回答)；自动写入 AI 开场白,返回 `messages` |
 | GET | `/api/projects/:id` | 单个项目 |
@@ -28,6 +33,11 @@ node server/index.mjs
 | POST | `/api/projects/:id/tasks/:taskId/confirm` | 显式确认,Body `{"proposalVersion":整数}`；版本过期→409(含 `currentVersion`)；重复确认→200幂等 |
 | POST | `/api/projects/:id/tasks/:taskId/cancel` | 取消方案(proposed/confirmed 均可,已取消再取幂等) |
 | POST | `/api/projects/:id/chat` | AI 对话,Body `{"text":"..."}`；返回 `{mode,reply,done,project}`；模型失败时明确报错+可重试(503 未配置/429 超预算/504 超时/502 调用失败) |
+
+### 鉴权与隔离
+- 除 `/health` 和 `/api/auth/code|login-phone|login-id` 外,所有业务接口需请求头 `Authorization: Bearer <token>`(JWT,HS256,30天有效)；无 Token/过期/伪造一律 401。
+- 数据按 `projects.user_id` 隔离:跨用户访问一律 401/404,看不到对方任何数据；无主老数据(升级前)不对任何用户可见。
+- `AUTH_SECRET` 未设置时每进程随机生成(重启后旧 Token 失效)；生产/Render 请在 Environment 里固定填写。
 
 ### 交互决策(步骤4验收时确定,步骤5起执行)
 - 确认交互只走自然语言对话,不做确认按钮/任务卡片 UI:用户说确认类→模型发【确认】块→后端 `confirmTask`;说算了→【取消】;说调整→【修订】;需新方案→【提议】。

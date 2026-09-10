@@ -16,6 +16,7 @@ import { ModelError, callModel, loadModelConfig } from './model.js';
 import { buildMessages, buildSystemPrompt } from './prompts.js';
 import { TASKS_DDL, cancelTask, confirmTask, createTask, normalizeTaskInput, pendingText, reviseTask, toTaskJson } from './tasks.js';
 import { applyDialogueActions } from './actions.js';
+import { USERS_DDL, findUserByCoordinate, findUserByPhone, hashPassword, normalizeCoordinate, normalizePhone, registerUser, requestCode, signToken, toUserJson, verifyCode, verifyPassword, verifyToken } from './auth.js';
 import { serveStatic } from './static.js';
 import { MEMORY_ENDS, MEMORY_START, applyCorrect, buildSummary, defaultConsensus, detectUserGuess, extractMarked, guessDecision, makeItem, saveRemembered } from './consensus.js';
 
@@ -61,6 +62,7 @@ db.exec(`
   )
 `);
 db.exec(TASKS_DDL);
+db.exec(USERS_DDL);
 db.exec(`
   CREATE TABLE IF NOT EXISTS model_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +83,7 @@ const hasDraftColumn = db
   .all()
   .some((column) => column.name === 'draft_text');
 if (!hasDraftColumn) db.exec('ALTER TABLE projects ADD COLUMN draft_text TEXT');
-for (const [column, ddl] of [['phase', 'ALTER TABLE projects ADD COLUMN phase TEXT'], ['overrides_json', 'ALTER TABLE projects ADD COLUMN overrides_json TEXT'], ['consensus_json', 'ALTER TABLE projects ADD COLUMN consensus_json TEXT']]) {
+for (const [column, ddl] of [['phase', 'ALTER TABLE projects ADD COLUMN phase TEXT'], ['overrides_json', 'ALTER TABLE projects ADD COLUMN overrides_json TEXT'], ['consensus_json', 'ALTER TABLE projects ADD COLUMN consensus_json TEXT'], ['user_id', 'ALTER TABLE projects ADD COLUMN user_id INTEGER']]) {
   const exists = db.prepare('PRAGMA table_info(projects)').all().some((c) => c.name === column);
   if (!exists) db.exec(ddl);
 }
@@ -217,9 +219,85 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { ok: true, service: 'dimspace-server', time: now() });
     }
 
+    // 1.5) 鉴权:公开账号接口放行,其余 /api/* 必须带有效 Token;无 Token/过期一律 401
+    const OPEN_AUTH = ['/api/auth/code', '/api/auth/login-phone', '/api/auth/login-id'];
+    let userId = null;
+    if (url.pathname.startsWith('/api/') && !OPEN_AUTH.includes(url.pathname)) {
+      const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
+      userId = token ? verifyToken(token) : null;
+      if (!userId) return send(res, 401, { ok: false, error: '未登录或登录已过期,请先登录', code: 'UNAUTHORIZED' });
+    }
+
+    // 2) 账号:发码(开发固定码)/手机码登录(自动注册)/坐标号登录/设密码/我
+    if (req.method === 'POST' && url.pathname === '/api/auth/code') {
+      let phone;
+      try {
+        phone = normalizePhone(JSON.parse((await readBody(req)) || '{}').phone);
+      } catch (error) {
+        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '手机号错误' });
+      }
+      try {
+        requestCode(phone);
+        return send(res, 200, { ok: true, dev: true, message: '开发阶段验证码固定为 123456(短信接口预留未接)' });
+      } catch (error) {
+        return send(res, 501, { ok: false, error: error instanceof Error ? error.message : '发码失败' });
+      }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/login-phone') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      let phone;
+      try {
+        phone = normalizePhone(body.phone);
+      } catch (error) {
+        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '手机号错误' });
+      }
+      if (!verifyCode(phone, body.code)) return send(res, 401, { ok: false, error: '验证码错误', code: 'BAD_CODE' });
+      let user = findUserByPhone(db, phone);
+      let registered = false;
+      if (!user) {
+        try {
+          user = registerUser(db, phone);
+          registered = true;
+        } catch {
+          user = findUserByPhone(db, phone); // 并发重复注册则转为登录
+          if (!user) return send(res, 500, { ok: false, error: '注册失败,请重试' });
+        }
+      }
+      return send(res, 200, { ok: true, token: signToken(user.id), registered, needPassword: !user.password_hash, user: toUserJson(user), ...(registered ? { message: '已自动注册,请设置登录密码' } : {}) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/login-id') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      let cid;
+      try {
+        cid = normalizeCoordinate(body.coordinateId);
+      } catch (error) {
+        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '坐标号错误' });
+      }
+      const user = findUserByCoordinate(db, cid);
+      if (!user) return send(res, 401, { ok: false, error: '坐标号不存在,请检查后重试', code: 'NO_SUCH_ID' });
+      if (!user.password_hash) return send(res, 401, { ok: false, error: '该账号尚未设置密码,请用手机验证码登录后设置', code: 'NO_PASSWORD' });
+      if (!verifyPassword(body.password, user.password_hash)) return send(res, 401, { ok: false, error: '密码错误,请重试', code: 'BAD_PASSWORD' });
+      return send(res, 200, { ok: true, token: signToken(user.id), user: toUserJson(user) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/set-password') {
+      let hash;
+      try {
+        hash = hashPassword(JSON.parse((await readBody(req)) || '{}').password);
+      } catch (error) {
+        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '密码错误' });
+      }
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/auth/me') {
+      const me = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+      if (!me) return send(res, 401, { ok: false, error: '用户不存在', code: 'UNAUTHORIZED' });
+      return send(res, 200, { ok: true, user: toUserJson(me) });
+    }
+
     // 2) 项目列表
     if (req.method === 'GET' && url.pathname === '/api/projects') {
-      const rows = db.prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects ORDER BY id').all();
+      const rows = db.prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE user_id = ? ORDER BY id').all(userId);
       return send(res, 200, { ok: true, count: rows.length, projects: rows.map(toProjectJson) });
     }
 
@@ -231,8 +309,8 @@ const server = createServer(async (req, res) => {
       if (name.length > 100) return send(res, 400, { ok: false, error: 'name 最多100个字' });
       const initial = typeof body.initialMessage === 'string' ? body.initialMessage.trim().slice(0, 2000) : '';
       const result = db
-        .prepare('INSERT INTO projects (name, created_at, phase) VALUES (?, ?, ?)')
-        .run(name, now(), 'consulting');
+        .prepare('INSERT INTO projects (name, created_at, phase, user_id) VALUES (?, ?, ?, ?)')
+        .run(name, now(), 'consulting', userId);
       const id = Number(result.lastInsertRowid);
       insertMessage(id, 'assistant', OPENING);
       let modelError;
@@ -246,8 +324,8 @@ const server = createServer(async (req, res) => {
         }
       }
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ?')
-        .get(id);
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ? AND user_id = ?')
+        .get(id, userId);
       return send(res, 201, { ok: true, project: toProjectJson(row), messages: readMessages(id), consensus: readConsensus(id), ...(modelError ? { modelError } : {}) });
     }
 
@@ -255,8 +333,8 @@ const server = createServer(async (req, res) => {
     const single = url.pathname.match(/^\/api\/projects\/(\d+)$/);
     if (req.method === 'GET' && single) {
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ?')
-        .get(Number(single[1]));
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ? AND user_id = ?')
+        .get(Number(single[1]), userId);
       if (!row) return send(res, 404, { ok: false, error: '项目不存在' });
       return send(res, 200, { ok: true, project: toProjectJson(row) });
     }
@@ -264,7 +342,7 @@ const server = createServer(async (req, res) => {
     // 5) 保存商品资料(任务3新增)
     if (req.method === 'PUT' && single) {
       const id = Number(single[1]);
-      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
       if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
       let profile;
       try {
@@ -272,10 +350,10 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '资料格式错误' });
       }
-      db.prepare('UPDATE projects SET profile_json = ? WHERE id = ?').run(JSON.stringify(profile), id);
+      db.prepare('UPDATE projects SET profile_json = ? WHERE id = ? AND user_id = ?').run(JSON.stringify(profile), id, userId);
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ?')
-        .get(id);
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ? AND user_id = ?')
+        .get(id, userId);
       return send(res, 200, { ok: true, project: toProjectJson(row) });
     }
 
@@ -283,7 +361,7 @@ const server = createServer(async (req, res) => {
     const msgList = url.pathname.match(/^\/api\/projects\/(\d+)\/messages$/);
     if (req.method === 'GET' && msgList) {
       const id = Number(msgList[1]);
-      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
       if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
       return send(res, 200, { ok: true, messages: readMessagesWithOpening(id) });
     }
@@ -292,7 +370,7 @@ const server = createServer(async (req, res) => {
     const consensusRoute = url.pathname.match(/^\/api\/projects\/(\d+)\/consensus$/);
     if (consensusRoute && (req.method === 'GET' || req.method === 'PUT')) {
       const id = Number(consensusRoute[1]);
-      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
       if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
       if (req.method === 'GET') return send(res, 200, { ok: true, consensus: readConsensus(id) });
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -309,7 +387,7 @@ const server = createServer(async (req, res) => {
     const summaryRoute = url.pathname.match(/^\/api\/projects\/(\d+)\/summary$/);
     if (req.method === 'GET' && summaryRoute) {
       const id = Number(summaryRoute[1]);
-      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
       if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
       return send(res, 200, { ok: true, summary: buildSummary(readConsensus(id)) });
     }
@@ -318,7 +396,7 @@ const server = createServer(async (req, res) => {
     const taskList = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks$/);
     if (taskList && (req.method === 'GET' || req.method === 'POST')) {
       const id = Number(taskList[1]);
-      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
       if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
       if (req.method === 'GET') {
         const rows = db.prepare('SELECT * FROM tasks WHERE project_id = ? ORDER BY id').all(id);
@@ -337,6 +415,7 @@ const server = createServer(async (req, res) => {
     const taskOne = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks\/(\d+)$/);
     if (req.method === 'PUT' && taskOne) {
       const id = Number(taskOne[1]);
+      if (!db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, userId)) return send(res, 404, { ok: false, error: '任务不存在' });
       let input;
       try {
         input = normalizeTaskInput(JSON.parse((await readBody(req)) || '{}'));
@@ -352,6 +431,7 @@ const server = createServer(async (req, res) => {
     const taskConfirm = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks\/(\d+)\/confirm$/);
     if (req.method === 'POST' && taskConfirm) {
       const id = Number(taskConfirm[1]);
+      if (!db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, userId)) return send(res, 404, { ok: false, error: '任务不存在' });
       const body = JSON.parse((await readBody(req)) || '{}');
       if (!Number.isInteger(body.proposalVersion)) return send(res, 400, { ok: false, error: 'body 必须是 {proposalVersion:整数}' });
       const result = confirmTask(db, id, Number(taskConfirm[2]), body.proposalVersion);
@@ -364,6 +444,7 @@ const server = createServer(async (req, res) => {
     }
     const taskCancel = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks\/(\d+)\/cancel$/);
     if (req.method === 'POST' && taskCancel) {
+      if (!db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(Number(taskCancel[1]), userId)) return send(res, 404, { ok: false, error: '任务不存在' });
       const result = cancelTask(db, Number(taskCancel[1]), Number(taskCancel[2]));
       if (!result.ok) return send(res, 404, { ok: false, error: '任务不存在' });
       return send(res, 200, { ok: true, idempotent: result.idempotent, task: toTaskJson(result.task) });
@@ -375,8 +456,8 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && chat) {
       const id = Number(chat[1]);
       const load = () => db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ?')
-        .get(id);
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ? AND user_id = ?')
+        .get(id, userId);
       const row = load();
       if (!row) return send(res, 404, { ok: false, error: '项目不存在' });
       const body = JSON.parse((await readBody(req)) || '{}');

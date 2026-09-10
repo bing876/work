@@ -9,6 +9,7 @@ import { join } from 'node:path';
 const PORT = 3115;
 const dbFile = join(mkdtempSync(join(tmpdir(), 'dimspace-tasks-')), 'tasks.db');
 let child;
+let token;
 const waitReady = async () => {
   const deadline = Date.now() + 8000;
   for (;;) {
@@ -22,6 +23,8 @@ const waitReady = async () => {
 before(async () => {
   child = spawn('node', ['server/index.mjs'], { env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile }, stdio: 'ignore' });
   await waitReady();
+  const login = await fetch(`http://127.0.0.1:${PORT}/api/auth/login-phone`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: '13800009999', code: '123456' }) });
+  token = (await login.json()).token;
 });
 after(() => child?.kill());
 
@@ -29,7 +32,7 @@ const base = `http://127.0.0.1:${PORT}`;
 const req = async (method, path, body) => {
   const res = await fetch(base + path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: res.status, json: await res.json() };

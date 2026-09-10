@@ -52,6 +52,11 @@ const stub = createServer((req, res) => {
   });
 });
 
+const tokens = {};
+const login = async (port) => {
+  const res = await fetch(`http://127.0.0.1:${port}/api/auth/login-phone`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: `1380000${port}`, code: '123456' }) });
+  return (await res.json()).token;
+};
 const children = [];
 const waitReady = async (port) => {
   const deadline = Date.now() + 8000;
@@ -78,6 +83,9 @@ before(async () => {
   await spawnServer(MAIN_PORT, dbMain, modelEnv);
   await spawnServer(NOKEY_PORT, dbNoKey); // 无 MODEL_* 
   await spawnServer(BUDGET_PORT, dbBudget, { ...modelEnv, MODEL_BUDGET_TOKENS: '50' }); // 桩每次120 tokens,第2次必超
+  tokens[MAIN_PORT] = await login(MAIN_PORT);
+  tokens[NOKEY_PORT] = await login(NOKEY_PORT);
+  tokens[BUDGET_PORT] = await login(BUDGET_PORT);
 });
 after(() => {
   for (const child of children) child?.kill();
@@ -86,22 +94,23 @@ after(() => {
 
 const api = (port) => {
   const base = `http://127.0.0.1:${port}`;
+  const auth = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${tokens[port]}` });
   return {
-    post: (path, body) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-    create: async (name, initialMessage) => (await (await fetch(`${base}/api/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, initialMessage }) })).json()),
+    post: (path, body) => fetch(`${base}${path}`, { method: 'POST', headers: auth(), body: JSON.stringify(body) }),
+    create: async (name, initialMessage) => (await (await fetch(`${base}/api/projects`, { method: 'POST', headers: auth(), body: JSON.stringify({ name, initialMessage }) })).json()),
     chat: async (id, text) => {
-      const res = await fetch(`${base}/api/projects/${id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const res = await fetch(`${base}/api/projects/${id}/chat`, { method: 'POST', headers: auth(), body: JSON.stringify({ text }) });
       return { status: res.status, ...(await res.json()) };
     },
-    messagesOf: async (id) => (await (await fetch(`${base}/api/projects/${id}/messages`)).json()).messages,
-    getConsensus: async (id) => (await (await fetch(`${base}/api/projects/${id}/consensus`)).json()),
+    messagesOf: async (id) => (await (await fetch(`${base}/api/projects/${id}/messages`, { headers: auth() })).json()).messages,
+    getConsensus: async (id) => (await (await fetch(`${base}/api/projects/${id}/consensus`, { headers: auth() })).json()),
     putConsensus: async (id, body) => {
-      const res = await fetch(`${base}/api/projects/${id}/consensus`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await fetch(`${base}/api/projects/${id}/consensus`, { method: 'PUT', headers: auth(), body: JSON.stringify(body) });
       return { status: res.status, ...(await res.json()) };
     },
-    getSummary: async (id) => (await (await fetch(`${base}/api/projects/${id}/summary`)).json()),
-    tasksOf: async (id) => (await (await fetch(`${base}/api/projects/${id}/tasks`)).json()).tasks,
-    put: (path, body) => fetch(`${base}${path}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    getSummary: async (id) => (await (await fetch(`${base}/api/projects/${id}/summary`, { headers: auth() })).json()),
+    tasksOf: async (id) => (await (await fetch(`${base}/api/projects/${id}/tasks`, { headers: auth() })).json()).tasks,
+    put: (path, body) => fetch(`${base}${path}`, { method: 'PUT', headers: auth(), body: JSON.stringify(body) }),
   };
 };
 const main = api(MAIN_PORT);
@@ -182,7 +191,7 @@ describe('模型对话', () => {
   });
 
   it('无Key:503明确报错不伪装;服务照常启动;建项目带 modelError', async () => {
-    const health = await fetch(`http://127.0.0.1:${NOKEY_PORT}/api/projects`);
+    const health = await fetch(`http://127.0.0.1:${NOKEY_PORT}/api/projects`, { headers: { Authorization: `Bearer ${tokens[NOKEY_PORT]}` } });
     assert.equal(health.status, 200); // 无Key不影响启动和读取
     const data = await nokey.create('无Key店');
     const answer = await nokey.chat(data.project.id, 'hi');
