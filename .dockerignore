@@ -1,0 +1,9 @@
+node_modules
+.git
+server/data
+dist
+test-results
+playwright-report
+.vite-temp
+*.log
+.env

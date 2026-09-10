@@ -14,6 +14,7 @@ import { OPENING } from './interview.js';
 import { honestReply } from './policy.js';
 import { ModelError, callModel, loadModelConfig } from './model.js';
 import { buildMessages, buildSystemPrompt } from './prompts.js';
+import { serveStatic } from './static.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 // 最小 .env 读取:只认 MODEL_* 键,已有环境变量优先;测试(DB_FILE=临时库)时跳过,保证 hermetic
@@ -269,6 +270,11 @@ const server = createServer(async (req, res) => {
         }
         throw error;
       }
+    }
+
+    // 8) 生产静态托管:有 dist/ 时托管前端(SPA 回退);无 dist(开发/测试)时走下面 JSON 404
+    if ((req.method === 'GET' || req.method === 'HEAD') && !url.pathname.startsWith('/api') && url.pathname !== '/health') {
+      if (serveStatic(req, res, join(rootDir, '..', 'dist'))) return;
     }
 
     return send(res, 404, { ok: false, error: '没有这个接口' });

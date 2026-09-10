@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: dimspace
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: MODEL_API_KEY
+        sync: false
+      - key: MODEL_BASE_URL
+        value: https://api.deepseek.com
+      - key: MODEL_NAME
+        value: deepseek-chat
+      - key: MODEL_TIMEOUT_MS
+        value: 60000
+      - key: MODEL_BUDGET_TOKENS
+        value: 1000000
