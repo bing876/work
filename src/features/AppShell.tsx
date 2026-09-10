@@ -33,6 +33,7 @@ import tokenRing from '../assets/prototype/icon-token-ring.svg';
 import voiceIcon from '../assets/prototype/icon-voice.svg';
 import { projectAvatarAsset } from '../assets/project-avatars';
 import { CreateProjectDialog } from './CreateProjectDialog';
+import { KnowledgeBase } from './KnowledgeBase';
 import type { CreateProjectInput } from '../client/workbench-client';
 
 type ShellState = { data: WorkbenchBootstrap; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
@@ -47,6 +48,8 @@ const railItems = [
   ['文件', railFiles],
   ['朋友圈', railMoments],
 ] as const;
+const railSections = ['conversations', 'contacts', 'saved', 'files', 'moments'] as const;
+const sectionLabels: Record<RailSection, string> = { conversations: '消息', contacts: '联系人', saved: '收藏', files: '文件', moments: '朋友圈' };
 const modelAssets: Record<string, string> = {
   chatgpt: modelChatGpt,
   claude: modelClaude,
@@ -146,7 +149,7 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
           </button>
           {showTabs && <div className="rail-tabs" aria-hidden={state.collapsed}>
             {railItems.map(([label, asset, selectedAsset], index) => (
-              <button key={label} className={`tab tab-${['msg', 'contact', 'fav', 'file', 'moments'][index]} ${index === 0 ? 'selected' : ''}`} type="button" aria-label={label} tabIndex={state.collapsed ? -1 : 0}>
+              <button key={label} className={`tab tab-${['msg', 'contact', 'fav', 'file', 'moments'][index]} ${state.section === railSections[index] ? 'selected' : ''}`} type="button" aria-label={label} aria-pressed={state.section === railSections[index]} tabIndex={state.collapsed ? -1 : 0} onClick={() => update({ section: railSections[index] })}>
                 <img className="tab-icon-off" src={asset} alt="" />
                 {selectedAsset && <img className="tab-icon-on" src={selectedAsset} alt="" />}
               </button>
@@ -163,7 +166,9 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
         </nav>
 
         <aside className="sidebar" aria-label="上下文和会话">
-          <div className="sidebar-tools">
+          {state.section === 'saved' ? <KnowledgeBase projectId={project?.id} consensus={project ? state.data.consensus[project.id] : undefined} client={client} onUpdate={(projectId, consensus) => dispatch({ type: 'consensus', projectId, consensus })} />
+          : state.section !== 'conversations' ? <div className="sidebar-placeholder">「{sectionLabels[state.section]}」建设中</div>
+          : <><div className="sidebar-tools">
             <label className="search-pill" data-state={searchState(state.search, state.searchFocused)}>
               <img className="search-icon" src={searchIcon} alt="" />
               <input aria-label="搜索联系人" value={state.search} onFocus={() => update({ searchFocused: true })} onBlur={() => update({ searchFocused: false })} onChange={(event) => update({ search: event.target.value })} placeholder="搜索" />
@@ -175,7 +180,7 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
             {projectConversations(state.data).map(({ project, conversation }) => (
               <ContactRow key={project.id} conversation={conversation} agent={state.data.agents.find((candidate) => candidate.id === project.agentId)} avatar={avatarFor(project.avatar)} selected={conversation.id === state.conversationId} onClick={() => update({ conversationId: conversation.id })} />
             ))}
-          </div>
+          </div></>}
         </aside>
         <div className="splitter" role="separator" tabIndex={state.collapsed ? -1 : 0} aria-hidden={state.collapsed} aria-orientation="vertical" aria-label="调整侧边栏宽度" aria-valuemin={250} aria-valuemax={310} aria-valuenow={sidebarWidth} onPointerDown={resizeSidebar} onKeyDown={resizeSidebarByKeyboard} onDoubleClick={() => update({ sidebarWidth: 250 })} />
 

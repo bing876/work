@@ -361,3 +361,18 @@ body { margin: 0; min-width: 980px; min-height: 760px; overflow: hidden; backgro
 .consensus-edit { display: flex; gap: 6px; flex: 1; }
 .consensus-edit input { flex: 1; font-size: 12px; padding: 2px 6px; border: 1px solid #93c5fd; border-radius: 6px; }
 .consensus-date { flex: none; font-size: 11px; color: #9ca3af; }
+
+/* 知识库(第一列收藏进入,侧边栏展示,只追加) */
+.knowledge-base { padding: 12px; overflow-y: auto; font-size: 13px; }
+.kb-title { margin: 0 0 8px; font-size: 14px; }
+.kb-empty { color: #9ca3af; font-size: 12px; }
+.kb-group h4 { margin: 10px 0 4px; font-size: 12px; color: #6b7280; }
+.kb-group ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.kb-group li { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; }
+.kb-group li span:first-child { flex: 1; }
+.kb-correct { flex: none; font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; cursor: pointer; }
+.kb-edit { display: flex; gap: 6px; flex: 1; }
+.kb-edit input { flex: 1; min-width: 0; font-size: 12px; padding: 2px 6px; border: 1px solid #93c5fd; border-radius: 6px; }
+.kb-files { margin-top: 12px; border-top: 1px dashed #e5e7eb; padding-top: 8px; }
+.kb-files h4 { margin: 0 0 4px; font-size: 12px; color: #6b7280; }
+.sidebar-placeholder { padding: 24px 16px; color: #9ca3af; font-size: 13px; text-align: center; }

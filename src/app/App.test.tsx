@@ -92,3 +92,16 @@ describe('App 启动失败', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
   });
 });
+
+describe('第一列导航', () => {
+  it('点收藏进知识库,点消息回到会话列表', async () => {
+    render(<WorkbenchClientProvider client={new MockWorkbenchClient()}><App /></WorkbenchClientProvider>);
+    await screen.findByLabelText('搜索联系人');
+    fireEvent.click(screen.getByRole('button', { name: '收藏' }));
+    expect(screen.getByLabelText('知识库')).toBeInTheDocument();
+    expect(screen.queryByLabelText('搜索联系人')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '消息' }));
+    expect(screen.getByLabelText('搜索联系人')).toBeInTheDocument();
+    expect(screen.queryByLabelText('知识库')).not.toBeInTheDocument();
+  });
+});
