@@ -7,14 +7,27 @@
 //   PUT  /api/projects/:id   保存商品资料,Body: {"profile": {"productName": "...", ...}}(任务3新增)
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { OPENING } from './interview.js';
 import { honestReply } from './policy.js';
-import { TRANSITION_MODE, transitionReply } from './transition.js';
+import { ModelError, callModel, loadModelConfig } from './model.js';
+import { buildMessages, buildSystemPrompt } from './prompts.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
+// 最小 .env 读取:只认 MODEL_* 键,已有环境变量优先;测试(DB_FILE=临时库)时跳过,保证 hermetic
+if (!process.env.DB_FILE) {
+  const envFile = join(rootDir, '..', '.env');
+  if (existsSync(envFile)) {
+    for (const line of readFileSync(envFile, 'utf-8').split('\n')) {
+      const match = line.match(/^\s*(MODEL_[A-Z_]+)\s*=\s*(.*?)\s*$/);
+      if (match && !(match[1] in process.env)) {
+        process.env[match[1]] = match[2].replace(/^["']|["']$/g, '');
+      }
+    }
+  }
+}
 // 测试可用 DB_FILE 指向临时库,避免污染真实数据
 const dbPath = process.env.DB_FILE ?? join(rootDir, 'data', 'app.db');
 mkdirSync(dirname(dbPath), { recursive: true });
@@ -40,6 +53,16 @@ db.exec(`
     project_id INTEGER NOT NULL,
     author TEXT NOT NULL,
     text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS model_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
     created_at TEXT NOT NULL
   )
 `);
@@ -97,6 +120,28 @@ const readMessagesWithOpening = (projectId) => {
   return messages;
 };
 
+// 重试去重:同一句话连发且上一条还没有 AI 回复时,不重复存档(重试按钮重发不会产生两条用户消息)
+const shouldSkipUserInsert = (projectId, text) => {
+  const last = db.prepare('SELECT author, text FROM messages WHERE project_id = ? ORDER BY id DESC LIMIT 1').get(projectId);
+  return !!last && last.author === 'user' && last.text === text;
+};
+// 为项目生成一条 AI 回复:查预算 -> 组装历史 -> 调模型 -> 记用量 -> 诚实性网关 -> 存档
+// 失败抛 ModelError,调用方转成明确报错+可重试,绝不伪装
+const generateReply = async (projectId) => {
+  const config = loadModelConfig();
+  if (!config.apiKey) throw new ModelError('MODEL_NOT_CONFIGURED', '模型未配置:缺少 MODEL_API_KEY。请在后端环境变量(或 Secrets)中配置后重启服务再试', true);
+  if (config.budgetTokens > 0) {
+    const used = db.prepare('SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total FROM model_usage').get().total;
+    if (used >= config.budgetTokens) throw new ModelError('MODEL_BUDGET_EXCEEDED', `已超模型预算(累计 ${used}/${config.budgetTokens} tokens)。请提高 MODEL_BUDGET_TOKENS 后重试`, true);
+  }
+  const history = readMessages(projectId);
+  const { text, usage } = await callModel({ config, messages: buildMessages(buildSystemPrompt(), history) });
+  db.prepare('INSERT INTO model_usage (project_id, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?)').run(projectId, config.name, usage.promptTokens, usage.completionTokens, now());
+  const reply = honestReply(text);
+  insertMessage(projectId, 'assistant', reply);
+  return reply;
+};
+
 const now = () => new Date().toISOString();
 const send = (res, status, obj) => {
   res.writeHead(status, {
@@ -134,7 +179,7 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { ok: true, count: rows.length, projects: rows.map(toProjectJson) });
     }
 
-    // 3) 创建项目:自动写入 AI 开场白;如果带了第一句话,存档为用户原话并给过渡回复
+    // 3) 创建项目:自动写入 AI 开场白;如果带了第一句话,存档并调模型回复,失败则带 modelError 返回
     if (req.method === 'POST' && url.pathname === '/api/projects') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const name = typeof body.name === 'string' ? body.name.trim() : '';
@@ -146,14 +191,19 @@ const server = createServer(async (req, res) => {
         .run(name, now(), 'consulting');
       const id = Number(result.lastInsertRowid);
       insertMessage(id, 'assistant', OPENING);
+      let modelError;
       if (initial) {
         insertMessage(id, 'user', initial);
-        insertMessage(id, 'assistant', honestReply(transitionReply(initial)));
+        try {
+          await generateReply(id);
+        } catch (error) {
+          modelError = error instanceof ModelError ? error.message : '模型调用失败';
+        }
       }
       const row = db
         .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ?')
         .get(id);
-      return send(res, 201, { ok: true, project: toProjectJson(row), messages: readMessages(id) });
+      return send(res, 201, { ok: true, project: toProjectJson(row), messages: readMessages(id), ...(modelError ? { modelError } : {}) });
     }
 
     // 4) 单个项目
@@ -193,8 +243,8 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { ok: true, messages: readMessagesWithOpening(id) });
     }
 
-    // 7) 统一对话路径(步骤1:阶段机已下线,不再按 phase 锁死分支)
-    //    用户消息存档 -> 过渡回复(明确标注 AI升级中,步骤2换真实模型) -> 诚实性网关 -> 返回
+    // 7) 统一对话:用户消息存档(重试去重) -> 真实模型 -> 诚实性网关 -> 存档返回
+    //    失败一律明确报错+可重试:503 未配置 / 429 超预算 / 504 超时 / 502 调用失败
     const chat = url.pathname.match(/^\/api\/projects\/(\d+)\/chat$/);
     if (req.method === 'POST' && chat) {
       const id = Number(chat[1]);
@@ -207,11 +257,18 @@ const server = createServer(async (req, res) => {
       const text = typeof body.text === 'string' ? body.text.trim() : '';
       if (!text) return send(res, 400, { ok: false, error: 'text 不能为空' });
       if (text.length > 2000) return send(res, 400, { ok: false, error: 'text 最多2000字' });
-      insertMessage(id, 'user', text);
-      const reply = honestReply(transitionReply(text));
-      insertMessage(id, 'assistant', reply);
-      const current = load();
-      return send(res, 200, { ok: true, mode: TRANSITION_MODE, reply: { author: 'assistant', text: reply }, done: current.phase === 'done', project: toProjectJson(current) });
+      if (!shouldSkipUserInsert(id, text)) insertMessage(id, 'user', text);
+      try {
+        const reply = await generateReply(id);
+        const current = load();
+        return send(res, 200, { ok: true, mode: 'model', reply: { author: 'assistant', text: reply }, done: current.phase === 'done', project: toProjectJson(current) });
+      } catch (error) {
+        if (error instanceof ModelError) {
+          const status = error.code === 'MODEL_NOT_CONFIGURED' ? 503 : error.code === 'MODEL_TIMEOUT' ? 504 : error.code === 'MODEL_BUDGET_EXCEEDED' ? 429 : 502;
+          return send(res, status, { ok: false, error: error.message, code: error.code, retryable: error.retryable });
+        }
+        throw error;
+      }
     }
 
     return send(res, 404, { ok: false, error: '没有这个接口' });

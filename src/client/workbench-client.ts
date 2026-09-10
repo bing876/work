@@ -27,7 +27,7 @@ export interface CreateProjectInput {
   templateEnabled: boolean;
   industryIntelligenceEnabled: boolean;
 }
-export interface CreateProjectResult { project: Project; agent: AgentSummary; conversation: ConversationSummary; messages: Message[]; tasks: Task[]; artifacts: Artifact[]; initialMessage?: Message; }
+export interface CreateProjectResult { project: Project; agent: AgentSummary; conversation: ConversationSummary; messages: Message[]; tasks: Task[]; artifacts: Artifact[]; initialMessage?: Message; modelError?: string; }
 export interface AgentTurn { message: Message; project?: Project; tasks?: Task[]; artifacts?: Artifact[]; }
 export interface UpdateProjectProfileInput { projectId: string; profile: ProductProfile; }
 

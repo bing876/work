@@ -51,6 +51,13 @@ describe('HttpWorkbenchClient', () => {
     expect(result.initialMessage).toMatchObject({ author: 'user', text: '帮我写上架文案' });
   });
 
+  it('建项目时模型失败会透传 modelError', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, project: row(9, '断网店'), messages: [msg(1, 'assistant', '您好！')], modelError: '模型调用超时' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await new HttpWorkbenchClient().createProject({ name: '断网店', workingFolder: null, initialMessage: 'hi', attachments: [], templateEnabled: false, industryIntelligenceEnabled: true });
+    expect(result.modelError).toBe('模型调用超时');
+  });
+
   it('空名字时用文件夹名兜底', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, project: row(3, '研究资料'), messages: [msg(1, 'assistant', '您好！')] }));
     vi.stubGlobal('fetch', fetchMock);
@@ -113,6 +120,11 @@ describe('HttpWorkbenchClient.sendMessage', () => {
     vi.stubGlobal('fetch', fetchMock);
     const turn = await new HttpWorkbenchClient().sendMessage({ conversationId: 'conv-srv-1', agentId: 'srv-1', text: '淘宝', modelId: 'chatgpt' });
     expect(turn.project).toMatchObject({ id: 'srv-1', profile, plan: '【执行计划】' });
+  });
+
+  it('模型失败(503/429/504/502)时把后端人话原样抛出,供重试条展示', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ok: false, error: '模型未配置:缺少 MODEL_API_KEY', code: 'MODEL_NOT_CONFIGURED', retryable: true }, 503)));
+    await expect(new HttpWorkbenchClient().sendMessage({ conversationId: 'conv-srv-1', agentId: 'srv-1', text: 'hi', modelId: 'chatgpt' })).rejects.toThrow('模型未配置');
   });
 
   it('非后端会话直接拒绝', async () => {

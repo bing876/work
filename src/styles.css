@@ -335,3 +335,8 @@ body { margin: 0; min-width: 980px; min-height: 760px; overflow: hidden; backgro
   .frame { inset: 12px 18px; width: auto; height: auto; transform: none; }
   .chat-area { padding-right: 20px; }
 }
+
+/* 步骤2:模型调用失败提示条(只追加,不改旧规则) */
+.composer-error { display: flex; align-items: center; gap: 10px; margin: 0 14px 8px; padding: 8px 12px; border-radius: 10px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
+.composer-error span { flex: 1; }
+.composer-error button { flex: none; padding: 4px 12px; border-radius: 8px; border: 1px solid #fca5a5; background: #fff; color: #b91c1c; cursor: pointer; }

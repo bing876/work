@@ -238,21 +238,32 @@ function MessageView({ message, agent }: { message: Message; agent?: AgentSummar
 
 function Composer({ state, dispatch, client, conversation, selectedModel }: { state: ShellState; dispatch: React.Dispatch<Action>; client: WorkbenchClient; conversation: ConversationSummary | null; selectedModel?: ModelOption }) {
   const [draft, setDraft] = useState('');
+  const [failure, setFailure] = useState<string | null>(null);
+  const lastText = useRef('');
   const update = (patch: Partial<ShellState>) => dispatch({ type: 'set', patch });
-  const send = async () => {
-    if (!draft.trim() || !conversation) return;
-    const local: Message = { id: `local-${Date.now()}`, author: 'user', agentId: conversation.agentId, text: draft };
-    dispatch({ type: 'append', conversationId: conversation.id, message: local });
-    setDraft('');
-    const reply = await client.sendMessage({ conversationId: conversation.id, agentId: conversation.agentId, text: local.text, modelId: state.data.selectedModelId });
-    dispatch({ type: 'agent-turn', result: reply });
+  const send = async (content: string, optimistic: boolean) => {
+    if (!content.trim() || !conversation) return;
+    lastText.current = content;
+    if (optimistic) {
+      const local: Message = { id: `local-${Date.now()}`, author: 'user', agentId: conversation.agentId, text: content };
+      dispatch({ type: 'append', conversationId: conversation.id, message: local });
+      setDraft('');
+    }
+    setFailure(null);
+    try {
+      const reply = await client.sendMessage({ conversationId: conversation.id, agentId: conversation.agentId, text: content, modelId: state.data.selectedModelId });
+      dispatch({ type: 'agent-turn', result: reply });
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : '发送失败，请重试');
+    }
   };
   return <footer className="composer" aria-label="消息输入">
+    {failure && <div className="composer-error" role="alert"><span>{failure}</span><button type="button" onClick={() => void send(lastText.current, false)}>重试</button></div>}
     <div className="inputbar">
       <button className="inputbar-btn attach" type="button" aria-label="添加附件" onClick={() => update({ toolOpen: !state.toolOpen, modelOpen: false })}><span className="primitive-plus" aria-hidden="true" /></button>
-      <textarea aria-label="输入消息" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} placeholder="比如：我想在淘宝卖茶叶" rows={1} />
+      <textarea aria-label="输入消息" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(draft, true); } }} placeholder="比如：我想在淘宝卖茶叶" rows={1} />
       <button className="inputbar-btn voice" type="button" aria-label="语音输入"><img src={voiceIcon} alt="" /></button>
-      <button className="inputbar-btn send" type="button" aria-label="发送消息" onClick={() => void send()}><img src={sendIcon} alt="" /></button>
+      <button className="inputbar-btn send" type="button" aria-label="发送消息" onClick={() => void send(draft, true)}><img src={sendIcon} alt="" /></button>
       {state.toolOpen && <ToolMenu />}
     </div>
     <div className="token-outside">

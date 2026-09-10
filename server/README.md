@@ -20,18 +20,21 @@ node server/index.mjs
 | GET | `/api/projects/:id` | 单个项目 |
 | PUT | `/api/projects/:id` | 保存商品资料(任务4改档案复用),Body `{"profile":{6个字符串字段,单个最多2000字}}` |
 | GET | `/api/projects/:id/messages` | 全部消息(老项目自动补开场白) |
-| POST | `/api/projects/:id/chat` | 访谈对话,Body `{"text":"..."}`；答满5题自动生成档案+计划,返回 `{reply,done,project}` |
+| POST | `/api/projects/:id/chat` | AI 对话,Body `{"text":"..."}`；返回 `{mode,reply,done,project}`；模型失败时明确报错+可重试(503 未配置/429 超预算/504 超时/502 调用失败) |
 
-访谈剧本见 `server/interview.js`(任务5换成真 AI,接口不变)。
+提示词见 `server/prompts.js`,行业模板见 `server/templates/`,后端硬规则见 `server/policy.js`。
 
-## 对话阶段
+## 模型配置
 
-`consulting`(自由咨询,只答不做) → `collecting`(需求收集,5问)
-→ `confirming`(展示方案,必须明确确认) → `executing`(分3步执行)
-↔ `paused`(暂停) → `done`(完成)。
+OpenAI-compatible 接口,默认 DeepSeek。环境变量(见 `.env.example`):
 
-- 确认关键词:确认/好的/开始/可以…；纠错格式:“价格改成199元”；暂停/继续随时可用。
-- 阶段存 `projects.phase`,纠错覆盖存 `overrides_json`,刷新/重启不丢。
+| 变量 | 说明 |
+|---|---|
+| `MODEL_API_KEY` | 密钥,只放环境变量或 `.env`(已忽略,不提交);缺失时聊天明确报错"模型未配置" |
+| `MODEL_BASE_URL` | 默认 `https://api.deepseek.com` |
+| `MODEL_NAME` | 默认 `deepseek-chat` |
+| `MODEL_TIMEOUT_MS` | 单次超时,默认 60000;超时明确报错,可重试(不自动重试) |
+| `MODEL_BUDGET_TOKENS` | 累计 token 上限,0=不限;超限即拦。每次用量记 `model_usage` 表 |
 
 ## 测试
 

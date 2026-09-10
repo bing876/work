@@ -27,6 +27,10 @@ export function App() {
   const selectedConversation = useMemo(() => state.data?.conversations.find(item => item.id === state.conversationId) ?? null, [state.data, state.conversationId]);
   if (state.bootError) return <main className="loading-shell"><div><p>启动失败:{state.bootError}</p><button type="button" onClick={() => window.location.reload()}>重试</button></div></main>;
   if (!state.data) return <main className="loading-shell">Loading Workbench vNext…</main>;
-  const createProject = async (input: CreateProjectInput) => dispatch({ type: 'project', result: await client.createProject(input) });
+  const createProject = async (input: CreateProjectInput) => {
+    const result = await client.createProject(input);
+    dispatch({ type: 'project', result });
+    if (result.modelError) dispatch({ type: 'append', conversationId: result.conversation.id, message: { id: `local-error-${Date.now()}`, author: 'assistant', agentId: result.conversation.agentId, text: `【模型调用失败】${result.modelError}。请在下方重发一条消息，我会结合上文回答。` } });
+  };
   return <AppShell state={{ ...state, data: state.data }} dispatch={dispatch} client={client} selectedConversation={selectedConversation} onCreateProject={createProject} />;
 }

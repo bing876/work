@@ -143,7 +143,7 @@ export class HttpWorkbenchClient implements WorkbenchClient {
 
   async createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
     const name = input.name.trim() || input.workingFolder?.displayName || new Date().toISOString().slice(0, 10);
-    const data = await this.request<{ project: ServerProject; messages: ServerMessage[] }>('/api/projects', {
+    const data = await this.request<{ project: ServerProject; messages: ServerMessage[]; modelError?: string }>('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, initialMessage: input.initialMessage.trim() || undefined }),
@@ -153,7 +153,7 @@ export class HttpWorkbenchClient implements WorkbenchClient {
     const conversation = toConversation(data.project, project);
     const messages = data.messages.map((item) => toMessage(item, agent.id));
     const initialMessage = messages.find((item) => item.author === 'user');
-    return { project, agent, conversation, messages, tasks: [], artifacts: [], initialMessage };
+    return { project, agent, conversation, messages, tasks: [], artifacts: [], initialMessage, ...(data.modelError ? { modelError: data.modelError } : {}) };
   }
 
   async updateProjectProfile(input: UpdateProjectProfileInput): Promise<Project> {
