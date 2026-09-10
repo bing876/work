@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useReducer } from 'react';
 import { useWorkbenchClient } from './workbench-context';
-import type { AgentTurn, CreateProjectInput, CreateProjectResult, Message, RailSection, WorkbenchBootstrap } from '../client/workbench-client';
+import type { AgentTurn, Consensus, CreateProjectInput, CreateProjectResult, Message, RailSection, WorkbenchBootstrap } from '../client/workbench-client';
 import { AppShell } from '../features/AppShell';
 
 type State = { data: WorkbenchBootstrap | null; bootError: string | null; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
-type Action = { type: 'boot'; data: WorkbenchBootstrap } | { type: 'set'; patch: Partial<State> } | { type: 'append'; conversationId: string; message: Message } | { type: 'project'; result: CreateProjectResult } | { type: 'agent-turn'; result: AgentTurn };
+type Action = { type: 'boot'; data: WorkbenchBootstrap } | { type: 'set'; patch: Partial<State> } | { type: 'append'; conversationId: string; message: Message } | { type: 'project'; result: CreateProjectResult } | { type: 'agent-turn'; result: AgentTurn } | { type: 'consensus'; projectId: string; consensus: Consensus };
 const reducer = (state: State, action: Action): State => {
   if (action.type === 'boot') return { ...state, data: action.data, conversationId: action.data.conversations[0]?.id ?? '' };
   if (action.type === 'set') return { ...state, ...action.patch };
   if (action.type === 'append' && state.data) return { ...state, data: { ...state.data, messages: { ...state.data.messages, [action.conversationId]: [...(state.data.messages[action.conversationId] ?? []), action.message] } } };
   if (action.type === 'project' && state.data) {
-    const { project, agent, conversation, messages, tasks, artifacts } = action.result;
-    return { ...state, conversationId: conversation.id, createProjectDialogOpen: false, data: { ...state.data, projects: [...state.data.projects, project], tasks: [...state.data.tasks, ...tasks], artifacts: [...state.data.artifacts, ...artifacts], agents: [...state.data.agents, agent], conversations: [...state.data.conversations, conversation], messages: { ...state.data.messages, [conversation.id]: messages } } };
+    const { project, agent, conversation, messages, tasks, artifacts, consensus } = action.result;
+    return { ...state, conversationId: conversation.id, createProjectDialogOpen: false, data: { ...state.data, projects: [...state.data.projects, project], tasks: [...state.data.tasks, ...tasks], artifacts: [...state.data.artifacts, ...artifacts], agents: [...state.data.agents, agent], conversations: [...state.data.conversations, conversation], messages: { ...state.data.messages, [conversation.id]: messages }, consensus: { ...state.data.consensus, ...(consensus ? { [project.id]: consensus } : {}) } } };
   }
   if (action.type === 'agent-turn' && state.data) {
-    const { message, project, tasks, artifacts } = action.result;
-    return { ...state, data: { ...state.data, projects: project ? state.data.projects.map((item) => item.id === project.id ? { ...project, avatar: item.avatar } : item) : state.data.projects, tasks: tasks ? state.data.tasks.map((item) => tasks.find((next) => next.id === item.id) ?? item) : state.data.tasks, artifacts: artifacts ? state.data.artifacts.map((item) => artifacts.find((next) => next.id === item.id) ?? item) : state.data.artifacts, messages: { ...state.data.messages, [state.conversationId]: [...(state.data.messages[state.conversationId] ?? []), message] } } };
+    const { message, project, tasks, artifacts, consensus } = action.result;
+    return { ...state, data: { ...state.data, projects: project ? state.data.projects.map((item) => item.id === project.id ? { ...project, avatar: item.avatar } : item) : state.data.projects, tasks: tasks ? state.data.tasks.map((item) => tasks.find((next) => next.id === item.id) ?? item) : state.data.tasks, artifacts: artifacts ? state.data.artifacts.map((item) => artifacts.find((next) => next.id === item.id) ?? item) : state.data.artifacts, consensus: consensus && project ? { ...state.data.consensus, [project.id]: consensus } : state.data.consensus, messages: { ...state.data.messages, [state.conversationId]: [...(state.data.messages[state.conversationId] ?? []), message] } } };
   }
+  if (action.type === 'consensus' && state.data) return { ...state, data: { ...state.data, consensus: { ...state.data.consensus, [action.projectId]: action.consensus } } };
   return state;
 };
 

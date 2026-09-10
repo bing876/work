@@ -16,7 +16,9 @@ export interface MessageBlock { type: 'text' | 'code' | 'artifact' | 'error'; ti
 export interface AttachmentRef { id: string; displayName: string; mimeType: string; size: number; }
 export interface Message { id: string; author: 'user' | 'assistant'; agentId: string; text: string; attachments?: AttachmentRef[]; blocks?: MessageBlock[]; state?: 'complete' | 'thinking' | 'error'; }
 export interface ModelOption { id: string; name: string; description: string; color: string; }
-export interface WorkbenchBootstrap { user: { name: string; initials: string }; projects: Project[]; tasks: Task[]; artifacts: Artifact[]; agents: AgentSummary[]; conversations: ConversationSummary[]; messages: Record<string, Message[]>; models: ModelOption[]; selectedModelId: string; }
+export interface ConsensusItem { id: string; text: string; kind: 'fact' | 'decision'; origin: 'user-guess' | 'ai'; status: 'suggested' | 'open' | 'confirmed' | 'decided'; source: { messageId: number | null }; updatedAt: string; confirmedAt?: string; }
+export interface Consensus { version: number; goal: null | { text: string; status: string }; facts: ConsensusItem[]; suggestions: ConsensusItem[]; openQuestions: ConsensusItem[]; decisions: ConsensusItem[]; }
+export interface WorkbenchBootstrap { user: { name: string; initials: string }; projects: Project[]; tasks: Task[]; artifacts: Artifact[]; agents: AgentSummary[]; conversations: ConversationSummary[]; messages: Record<string, Message[]>; consensus: Record<string, Consensus>; models: ModelOption[]; selectedModelId: string; }
 export interface SendMessageInput { conversationId: string; agentId: string; text: string; modelId: string; }
 export interface CreateProjectInput {
   avatar?: ProjectAvatar;
@@ -27,9 +29,10 @@ export interface CreateProjectInput {
   templateEnabled: boolean;
   industryIntelligenceEnabled: boolean;
 }
-export interface CreateProjectResult { project: Project; agent: AgentSummary; conversation: ConversationSummary; messages: Message[]; tasks: Task[]; artifacts: Artifact[]; initialMessage?: Message; modelError?: string; }
-export interface AgentTurn { message: Message; project?: Project; tasks?: Task[]; artifacts?: Artifact[]; }
+export interface CreateProjectResult { project: Project; agent: AgentSummary; conversation: ConversationSummary; messages: Message[]; tasks: Task[]; artifacts: Artifact[]; consensus?: Consensus; initialMessage?: Message; modelError?: string; }
+export interface AgentTurn { message: Message; project?: Project; tasks?: Task[]; artifacts?: Artifact[]; consensus?: Consensus; }
 export interface UpdateProjectProfileInput { projectId: string; profile: ProductProfile; }
+export interface ConfirmConsensusInput { projectId: string; id: string; as: 'fact' | 'decision'; }
 
 /** Phase 0 frontend port. This is intentionally not the future Application API contract. */
 export interface WorkbenchClient {
@@ -37,4 +40,6 @@ export interface WorkbenchClient {
   sendMessage(input: SendMessageInput): Promise<AgentTurn>;
   createProject(input: CreateProjectInput): Promise<CreateProjectResult>;
   updateProjectProfile(input: UpdateProjectProfileInput): Promise<Project>;
+  getConsensus(projectId: string): Promise<Consensus>;
+  confirmConsensus(input: ConfirmConsensusInput): Promise<Consensus>;
 }

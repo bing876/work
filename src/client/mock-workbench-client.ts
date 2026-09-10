@@ -1,4 +1,4 @@
-import type { AgentSummary, AgentTurn, Artifact, CreateProjectInput, CreateProjectResult, Message, Project, SendMessageInput, Task, UpdateProjectProfileInput, WorkbenchBootstrap, WorkbenchClient } from './workbench-client';
+import type { AgentSummary, AgentTurn, Artifact, ConfirmConsensusInput, Consensus, CreateProjectInput, CreateProjectResult, Message, Project, SendMessageInput, Task, UpdateProjectProfileInput, WorkbenchBootstrap, WorkbenchClient } from './workbench-client';
 import { defaultProjectAvatar } from '../assets/project-avatars';
 
 const initial: WorkbenchBootstrap = {
@@ -55,6 +55,7 @@ const initial: WorkbenchBootstrap = {
     { id: 'hunyuan', name: '混元', description: 'Hy3', color: '#2d96ee' },
   ],
   selectedModelId: 'chatgpt',
+  consensus: {},
 };
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -284,6 +285,15 @@ export class MockWorkbenchClient implements WorkbenchClient {
     const updated: Project = { ...project, profile: clone(input.profile) };
     this.state.projects = this.state.projects.map((item) => item.id === project.id ? updated : item);
     return clone(updated);
+  }
+
+  // Mock 冻结:共识返回空结构,不镜像后端规则
+  async getConsensus(): Promise<Consensus> {
+    return { version: 1, goal: null, facts: [], suggestions: [], openQuestions: [], decisions: [] };
+  }
+
+  async confirmConsensus(_input: ConfirmConsensusInput): Promise<Consensus> {
+    return this.getConsensus();
   }
 
   private workflowTasks(project: Project): Task[] {

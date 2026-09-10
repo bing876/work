@@ -5,7 +5,7 @@ import {
   PencilSimple,
   X,
 } from '@phosphor-icons/react';
-import type { AgentSummary, ConversationSummary, Message, ModelOption, Project, RailSection, WorkbenchBootstrap, WorkbenchClient } from '../client/workbench-client';
+import type { AgentSummary, Consensus, ConversationSummary, Message, ModelOption, Project, RailSection, WorkbenchBootstrap, WorkbenchClient } from '../client/workbench-client';
 import avatar1 from '../assets/prototype/avatar-1.png';
 import avatar2 from '../assets/prototype/avatar-2.png';
 import avatar3 from '../assets/prototype/avatar-3.png';
@@ -33,10 +33,11 @@ import tokenRing from '../assets/prototype/icon-token-ring.svg';
 import voiceIcon from '../assets/prototype/icon-voice.svg';
 import { projectAvatarAsset } from '../assets/project-avatars';
 import { CreateProjectDialog } from './CreateProjectDialog';
+import { ProjectConsensus } from './ProjectConsensus';
 import type { CreateProjectInput } from '../client/workbench-client';
 
 type ShellState = { data: WorkbenchBootstrap; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
-type Action = { type: 'set'; patch: Partial<ShellState> } | { type: 'append'; conversationId: string; message: Message } | { type: 'agent-turn'; result: import('../client/workbench-client').AgentTurn };
+type Action = { type: 'set'; patch: Partial<ShellState> } | { type: 'append'; conversationId: string; message: Message } | { type: 'agent-turn'; result: import('../client/workbench-client').AgentTurn } | { type: 'consensus'; projectId: string; consensus: Consensus };
 type Props = { state: ShellState; dispatch: React.Dispatch<Action>; client: WorkbenchClient; selectedConversation: ConversationSummary | null; onCreateProject: (input: CreateProjectInput) => Promise<void> };
 
 const avatars = [avatar1, avatar2, avatar3, avatar4, avatar5, avatar6];
@@ -180,6 +181,7 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
         <div className="splitter" role="separator" tabIndex={state.collapsed ? -1 : 0} aria-hidden={state.collapsed} aria-orientation="vertical" aria-label="调整侧边栏宽度" aria-valuemin={250} aria-valuemax={310} aria-valuenow={sidebarWidth} onPointerDown={resizeSidebar} onKeyDown={resizeSidebarByKeyboard} onDoubleClick={() => update({ sidebarWidth: 250 })} />
 
         <section className="main-area" aria-label="工作区">
+          {project && <ProjectConsensus projectId={project.id} consensus={state.data.consensus[project.id]} client={client} onUpdate={(projectId, consensus) => dispatch({ type: 'consensus', projectId, consensus })} />}
           <Conversation messages={state.data.messages[state.conversationId] ?? []} agent={agent} />
           <Composer state={state} dispatch={dispatch} client={client} conversation={conversation} selectedModel={selectedModel} />
         </section>

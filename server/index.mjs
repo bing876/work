@@ -15,6 +15,7 @@ import { honestReply } from './policy.js';
 import { ModelError, callModel, loadModelConfig } from './model.js';
 import { buildMessages, buildSystemPrompt } from './prompts.js';
 import { serveStatic } from './static.js';
+import { appendUnique, applyConfirm, defaultConsensus, detectUserGuess, extractMarked, makeItem } from './consensus.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 // 最小 .env 读取:只认 MODEL_* 键,已有环境变量优先;测试(DB_FILE=临时库)时跳过,保证 hermetic
@@ -77,7 +78,7 @@ const hasDraftColumn = db
   .all()
   .some((column) => column.name === 'draft_text');
 if (!hasDraftColumn) db.exec('ALTER TABLE projects ADD COLUMN draft_text TEXT');
-for (const [column, ddl] of [['phase', 'ALTER TABLE projects ADD COLUMN phase TEXT'], ['overrides_json', 'ALTER TABLE projects ADD COLUMN overrides_json TEXT']]) {
+for (const [column, ddl] of [['phase', 'ALTER TABLE projects ADD COLUMN phase TEXT'], ['overrides_json', 'ALTER TABLE projects ADD COLUMN overrides_json TEXT'], ['consensus_json', 'ALTER TABLE projects ADD COLUMN consensus_json TEXT']]) {
   const exists = db.prepare('PRAGMA table_info(projects)').all().some((c) => c.name === column);
   if (!exists) db.exec(ddl);
 }
@@ -108,7 +109,7 @@ const toProjectJson = (row) => ({
 });
 const toMessageJson = (row) => ({ id: row.id, author: row.author, text: row.text, created_at: row.created_at });
 const insertMessage = (projectId, author, text) =>
-  db.prepare('INSERT INTO messages (project_id, author, text, created_at) VALUES (?, ?, ?, ?)').run(projectId, author, text, now());
+  Number(db.prepare('INSERT INTO messages (project_id, author, text, created_at) VALUES (?, ?, ?, ?)').run(projectId, author, text, now()).lastInsertRowid);
 const readMessages = (projectId) =>
   db.prepare('SELECT id, author, text, created_at FROM messages WHERE project_id = ? ORDER BY id').all(projectId).map(toMessageJson);
 // 老项目没有开场白,首次读取时自动补一条
@@ -121,13 +122,35 @@ const readMessagesWithOpening = (projectId) => {
   return messages;
 };
 
+// 项目共识读写:老项目/空值一律回退默认四区结构
+const readConsensus = (projectId) => {
+  const row = db.prepare('SELECT consensus_json FROM projects WHERE id = ?').get(projectId);
+  if (!row?.consensus_json) return defaultConsensus();
+  try {
+    return { ...defaultConsensus(), ...JSON.parse(row.consensus_json) };
+  } catch {
+    return defaultConsensus();
+  }
+};
+const writeConsensus = (projectId, consensus) => {
+  db.prepare('UPDATE projects SET consensus_json = ? WHERE id = ?').run(JSON.stringify(consensus), projectId);
+};
+// 用户推测记录:"也许/可能"类只进建议区(要求2),返回是否新增
+const recordUserGuess = (projectId, userId, text) => {
+  const guess = detectUserGuess(text);
+  if (!guess) return false;
+  const consensus = readConsensus(projectId);
+  const added = appendUnique(consensus.suggestions, makeItem({ text, kind: guess.kind, origin: 'user-guess', messageId: userId }));
+  if (added) writeConsensus(projectId, consensus);
+  return added;
+};
 // 重试去重:同一句话连发且上一条还没有 AI 回复时,不重复存档(重试按钮重发不会产生两条用户消息)
 const shouldSkipUserInsert = (projectId, text) => {
   const last = db.prepare('SELECT author, text FROM messages WHERE project_id = ? ORDER BY id DESC LIMIT 1').get(projectId);
   return !!last && last.author === 'user' && last.text === text;
 };
 // 为项目生成一条 AI 回复:查预算 -> 组装历史 -> 调模型 -> 记用量 -> 诚实性网关 -> 存档
-// 失败抛 ModelError,调用方转成明确报错+可重试,绝不伪装
+// 失败抛 ModelError,调用方转成明确报错+可重试,绝不伪装;成功返回 {reply, consensusAdded}
 const generateReply = async (projectId) => {
   const config = loadModelConfig();
   if (!config.apiKey) throw new ModelError('MODEL_NOT_CONFIGURED', '模型未配置:缺少 MODEL_API_KEY。请在后端环境变量(或 Secrets)中配置后重启服务再试', true);
@@ -138,9 +161,32 @@ const generateReply = async (projectId) => {
   const history = readMessages(projectId);
   const { text, usage } = await callModel({ config, messages: buildMessages(buildSystemPrompt(), history) });
   db.prepare('INSERT INTO model_usage (project_id, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?)').run(projectId, config.name, usage.promptTokens, usage.completionTokens, now());
-  const reply = honestReply(text);
+  // 共识提取:AI标记块 -> 建议区/待确认区;展示文本去掉整块,只留附注
+  const sug = extractMarked(text, '【共识建议】', '【共识建议结束】');
+  const que = extractMarked(sug.stripped, '【待确认】', '【待确认结束】');
+  let reply = honestReply(que.stripped);
+  let added = 0;
+  if (sug.items.length || que.items.length) {
+    const consensus = readConsensus(projectId);
+    const fresh = [];
+    for (const t of sug.items) {
+      const item = makeItem({ text: t, kind: 'fact', origin: 'ai', messageId: null });
+      if (appendUnique(consensus.suggestions, item)) { fresh.push(item); added++; }
+    }
+    for (const t of que.items) {
+      const item = makeItem({ text: t, kind: 'fact', origin: 'ai', messageId: null });
+      if (appendUnique(consensus.openQuestions, item)) { fresh.push(item); added++; }
+    }
+    if (added > 0) {
+      reply += `\n\n（已将${added}条记入「项目共识·待确认」，你确认后才会生效。）`;
+      const assistantId = insertMessage(projectId, 'assistant', reply);
+      for (const item of fresh) item.source.messageId = assistantId;
+      writeConsensus(projectId, consensus);
+      return { reply, consensusAdded: added };
+    }
+  }
   insertMessage(projectId, 'assistant', reply);
-  return reply;
+  return { reply, consensusAdded: 0 };
 };
 
 const now = () => new Date().toISOString();
@@ -194,7 +240,8 @@ const server = createServer(async (req, res) => {
       insertMessage(id, 'assistant', OPENING);
       let modelError;
       if (initial) {
-        insertMessage(id, 'user', initial);
+        const userId = insertMessage(id, 'user', initial);
+        recordUserGuess(id, userId, initial);
         try {
           await generateReply(id);
         } catch (error) {
@@ -204,7 +251,7 @@ const server = createServer(async (req, res) => {
       const row = db
         .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text, phase, overrides_json FROM projects WHERE id = ?')
         .get(id);
-      return send(res, 201, { ok: true, project: toProjectJson(row), messages: readMessages(id), ...(modelError ? { modelError } : {}) });
+      return send(res, 201, { ok: true, project: toProjectJson(row), messages: readMessages(id), consensus: readConsensus(id), ...(modelError ? { modelError } : {}) });
     }
 
     // 4) 单个项目
@@ -244,6 +291,23 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { ok: true, messages: readMessagesWithOpening(id) });
     }
 
+    // 6.5) 项目共识:GET 读取四区;PUT 仅支持 {op:'confirm', id, as} 确认移动(唯一入库通道)
+    const consensusRoute = url.pathname.match(/^\/api\/projects\/(\d+)\/consensus$/);
+    if (consensusRoute && (req.method === 'GET' || req.method === 'PUT')) {
+      const id = Number(consensusRoute[1]);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
+      if (req.method === 'GET') return send(res, 200, { ok: true, consensus: readConsensus(id) });
+      const body = JSON.parse((await readBody(req)) || '{}');
+      if (body.op !== 'confirm' || typeof body.id !== 'string' || (body.as !== 'fact' && body.as !== 'decision')) {
+        return send(res, 400, { ok: false, error: 'body 必须是 {op:\'confirm\', id, as:\'fact\'|\'decision\'}' });
+      }
+      const result = applyConfirm(readConsensus(id), body.id, body.as);
+      if (!result.ok) return send(res, 400, { ok: false, error: result.error });
+      writeConsensus(id, result.consensus);
+      return send(res, 200, { ok: true, moved: result.moved, consensus: result.consensus });
+    }
+
     // 7) 统一对话:用户消息存档(重试去重) -> 真实模型 -> 诚实性网关 -> 存档返回
     //    失败一律明确报错+可重试:503 未配置 / 429 超预算 / 504 超时 / 502 调用失败
     const chat = url.pathname.match(/^\/api\/projects\/(\d+)\/chat$/);
@@ -258,11 +322,14 @@ const server = createServer(async (req, res) => {
       const text = typeof body.text === 'string' ? body.text.trim() : '';
       if (!text) return send(res, 400, { ok: false, error: 'text 不能为空' });
       if (text.length > 2000) return send(res, 400, { ok: false, error: 'text 最多2000字' });
-      if (!shouldSkipUserInsert(id, text)) insertMessage(id, 'user', text);
+      if (!shouldSkipUserInsert(id, text)) {
+        const userId = insertMessage(id, 'user', text);
+        recordUserGuess(id, userId, text);
+      }
       try {
-        const reply = await generateReply(id);
+        const { reply, consensusAdded } = await generateReply(id);
         const current = load();
-        return send(res, 200, { ok: true, mode: 'model', reply: { author: 'assistant', text: reply }, done: current.phase === 'done', project: toProjectJson(current) });
+        return send(res, 200, { ok: true, mode: 'model', reply: { author: 'assistant', text: reply }, done: current.phase === 'done', project: toProjectJson(current), consensus: readConsensus(id), consensusAdded });
       } catch (error) {
         if (error instanceof ModelError) {
           const status = error.code === 'MODEL_NOT_CONFIGURED' ? 503 : error.code === 'MODEL_TIMEOUT' ? 504 : error.code === 'MODEL_BUDGET_EXCEEDED' ? 429 : 502;

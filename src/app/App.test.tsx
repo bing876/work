@@ -84,6 +84,8 @@ describe('App 启动失败', () => {
       sendMessage: () => Promise.reject(new Error('not implemented')),
       createProject: () => Promise.reject(new Error('not implemented')),
       updateProjectProfile: () => Promise.reject(new Error('not implemented')),
+      getConsensus: () => Promise.reject(new Error('not implemented')),
+      confirmConsensus: () => Promise.reject(new Error('not implemented')),
     };
     render(<WorkbenchClientProvider client={failingClient}><App /></WorkbenchClientProvider>);
     expect(await screen.findByText(/启动失败:连不上后端服务/)).toBeInTheDocument();

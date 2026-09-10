@@ -31,6 +31,9 @@ const stub = createServer((req, res) => {
     };
     if (stubMode === 'error500') return send(500, { error: { message: 'stub exploded' } });
     if (stubMode === 'slow') return setTimeout(() => send(200, { choices: [{ message: { content: 'too late' } }], usage: {} }), 3000);
+    if (stubMode === 'consensus') {
+      return send(200, { choices: [{ message: { content: '正文回答。\n【共识建议】\n先做代发试水\n首批只上一个品\n【共识建议结束】\n【待确认】\n启动资金多少\n【待确认结束】' } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
+    }
     const lastUser = [...lastRequest.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
     const content = stubMode === 'claim' ? '我已经帮你发布到店铺了' : `STUB收到:${lastUser.slice(0, 30)}`;
     return send(200, { choices: [{ message: { content } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
@@ -79,6 +82,11 @@ const api = (port) => {
       return { status: res.status, ...(await res.json()) };
     },
     messagesOf: async (id) => (await (await fetch(`${base}/api/projects/${id}/messages`)).json()).messages,
+    getConsensus: async (id) => (await (await fetch(`${base}/api/projects/${id}/consensus`)).json()),
+    putConsensus: async (id, body) => {
+      const res = await fetch(`${base}/api/projects/${id}/consensus`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: res.status, ...(await res.json()) };
+    },
   };
 };
 const main = api(MAIN_PORT);
@@ -95,6 +103,7 @@ describe('模型对话', () => {
     assert.equal(lastRequest.messages[0].role, 'system');
     assert.match(lastRequest.messages[0].content, /项目负责人/);
     assert.match(lastRequest.messages[0].content, /电商经营参考/);
+    assert.match(lastRequest.messages[0].content, /共识建议/);
     const db = new DatabaseSync(dbMain);
     const usage = db.prepare('SELECT * FROM model_usage WHERE project_id = ?').get(data.project.id);
     db.close();
@@ -186,5 +195,77 @@ describe('模型对话', () => {
     assert.equal((await main.post(`/api/projects/${data.project.id}/chat`, { text: '   ' })).status, 400);
     assert.equal((await main.post(`/api/projects/${data.project.id}/chat`, { text: 'x'.repeat(2001) })).status, 400);
     assert.equal((await main.post('/api/projects/999/chat', { text: 'hi' })).status, 404);
+  });
+});
+
+describe('项目共识', () => {
+  it('“也许”首话只进建议区(kind=decision),不进已确认区;响应带 consensus', async () => {
+    stubMode = 'ok';
+    const data = await main.create('推测店', '也许可以投入两万元');
+    assert.equal(data.consensus.facts.length, 0);
+    assert.equal(data.consensus.decisions.length, 0);
+    assert.equal(data.consensus.suggestions.length, 1);
+    assert.equal(data.consensus.suggestions[0].kind, 'decision');
+    assert.equal(data.consensus.suggestions[0].origin, 'user-guess');
+    assert.equal(data.consensus.suggestions[0].status, 'suggested');
+    assert.match(data.consensus.suggestions[0].text, /两万元/);
+    assert.ok(data.consensus.suggestions[0].source.messageId);
+    assert.ok(data.consensus.suggestions[0].updatedAt);
+  });
+
+  it('AI标记块收录:建议+2/待确认+1,展示文本去标记留附注', async () => {
+    stubMode = 'consensus';
+    const data = await main.create('收录店', '聊聊');
+    assert.equal(data.consensus.suggestions.length, 2);
+    assert.equal(data.consensus.openQuestions.length, 1);
+    assert.equal(data.consensus.suggestions[0].origin, 'ai');
+    const shown = data.messages[2].text;
+    assert.doesNotMatch(shown, /共识建议|待确认】/);
+    assert.match(shown, /已将3条记入「项目共识·待确认」/);
+    assert.match(shown, /正文回答/);
+    stubMode = 'ok';
+    const answer = await main.chat(data.project.id, '再聊');
+    assert.equal(answer.consensusAdded, 0);
+    assert.equal(answer.consensus.suggestions.length, 2); // 无标记回复不新增
+  });
+
+  it('确认移动:建议→决定区;GET 一致;非法确认拒绝;重复幂等', async () => {
+    stubMode = 'ok';
+    const data = await main.create('确认店2', '也许先做代发');
+    const id = data.consensus.suggestions[0].id;
+    const bad1 = await main.putConsensus(data.project.id, { op: 'confirm', id: 'nope', as: 'decision' });
+    assert.equal(bad1.status, 400);
+    const bad2 = await main.putConsensus(data.project.id, { op: 'confirm', id, as: 'other' });
+    assert.equal(bad2.status, 400);
+    const done = await main.putConsensus(data.project.id, { op: 'confirm', id, as: 'decision' });
+    assert.equal(done.status, 200);
+    assert.equal(done.moved, true);
+    assert.equal(done.consensus.suggestions.length, 0);
+    assert.equal(done.consensus.decisions.length, 1);
+    assert.equal(done.consensus.decisions[0].status, 'decided');
+    const again = await main.putConsensus(data.project.id, { op: 'confirm', id, as: 'decision' });
+    assert.equal(again.status, 200);
+    assert.equal(again.moved, false);
+    assert.equal(again.consensus.decisions.length, 1);
+    const fetched = await main.getConsensus(data.project.id);
+    assert.equal(fetched.consensus.decisions.length, 1);
+    const missing = await main.getConsensus(999);
+    assert.equal(missing.ok, false);
+  });
+
+  it('已确认条目不被后续提取改写', async () => {
+    stubMode = 'ok';
+    const data = await main.create('锁定店', '也许先做代发');
+    const item = data.consensus.suggestions[0];
+    await main.putConsensus(data.project.id, { op: 'confirm', id: item.id, as: 'fact' });
+    stubMode = 'consensus';
+    await main.chat(data.project.id, '继续聊');
+    stubMode = 'ok';
+    const fetched = await main.getConsensus(data.project.id);
+    assert.equal(fetched.consensus.facts.length, 1);
+    assert.equal(fetched.consensus.facts[0].id, item.id);
+    assert.equal(fetched.consensus.facts[0].text, item.text);
+    assert.equal(fetched.consensus.facts[0].status, 'confirmed');
+    assert.ok(fetched.consensus.suggestions.length >= 2); // 新提取只追加新区
   });
 });
