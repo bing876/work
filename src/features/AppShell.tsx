@@ -33,7 +33,6 @@ import tokenRing from '../assets/prototype/icon-token-ring.svg';
 import voiceIcon from '../assets/prototype/icon-voice.svg';
 import { projectAvatarAsset } from '../assets/project-avatars';
 import { CreateProjectDialog } from './CreateProjectDialog';
-import { ProjectConsensus } from './ProjectConsensus';
 import type { CreateProjectInput } from '../client/workbench-client';
 
 type ShellState = { data: WorkbenchBootstrap; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
@@ -181,7 +180,6 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
         <div className="splitter" role="separator" tabIndex={state.collapsed ? -1 : 0} aria-hidden={state.collapsed} aria-orientation="vertical" aria-label="调整侧边栏宽度" aria-valuemin={250} aria-valuemax={310} aria-valuenow={sidebarWidth} onPointerDown={resizeSidebar} onKeyDown={resizeSidebarByKeyboard} onDoubleClick={() => update({ sidebarWidth: 250 })} />
 
         <section className="main-area" aria-label="工作区">
-          {project && <ProjectConsensus projectId={project.id} consensus={state.data.consensus[project.id]} client={client} onUpdate={(projectId, consensus) => dispatch({ type: 'consensus', projectId, consensus })} />}
           <Conversation messages={state.data.messages[state.conversationId] ?? []} agent={agent} />
           <Composer state={state} dispatch={dispatch} client={client} conversation={conversation} selectedModel={selectedModel} />
         </section>
