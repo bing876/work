@@ -94,17 +94,19 @@ export function LoginCard({ onAuthed }: { onAuthed: () => void }) {
         <section className="login-form" aria-label="登录表单">
           <>
               <div className="login-tabs" role="tablist" aria-label="登录方式">
-                <button type="button" role="tab" aria-selected={mode === 'account'} className={mode === 'account' ? 'on' : ''} onClick={() => { setMode('account'); setError(null); }}>账号密码登录</button>
+                <button type="button" role="tab" aria-selected={mode === 'account'} className={mode === 'account' ? 'on' : ''} onClick={() => { setMode('account'); setError(null); }}>账号登录</button>
                 <button type="button" role="tab" aria-selected={mode === 'code'} className={mode === 'code' ? 'on' : ''} onClick={() => { setMode('code'); setError(null); }}>验证码登录</button>
               </div>
               {mode === 'account' ? (
                 <>
-                  <label className="login-box"><span className="login-visually-hidden">手机号</span><input aria-label="手机号" inputMode="numeric" autoComplete="username" placeholder="请输入手机号" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+                  <div className="login-box login-phone">
+                    <select aria-label="国家区号" value="86" onChange={() => {}}><option value="86">+86</option></select>
+                    <span className="login-visually-hidden">手机号</span><input aria-label="手机号" inputMode="numeric" autoComplete="username" placeholder="请输入手机号" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                  </div>
                   <div className="login-box login-xyz">
                     <span className="login-xyz-prefix" aria-hidden="true">XYZ</span>
-                    <span className="login-visually-hidden">坐标号</span><input aria-label="坐标号" inputMode="numeric" autoComplete="current-password" placeholder="请输入数字部分" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
+                    <span className="login-visually-hidden">坐标号</span><input aria-label="坐标号" inputMode="numeric" autoComplete="off" placeholder="输入坐标号进入" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
                   </div>
-                  <p className="login-hint">手机号就是账号,坐标号就是密码。</p>
                 </>
               ) : (
                 <>

@@ -13,12 +13,12 @@ afterEach(() => {
 });
 
 describe('LoginCard 登录弹窗', () => {
-  it('左海报占满展示,右表单默认账号密码登录', () => {
+  it('左海报占满展示,右表单默认账号登录', () => {
     render(<LoginCard onAuthed={() => {}} />);
     expect(screen.getByText('零度之上')).toBeInTheDocument();
     expect(screen.getByText(LOGIN_POSTERS[0].caption)).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '账号密码登录' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByLabelText('坐标号')).toHaveAttribute('placeholder', '请输入数字部分');
+    expect(screen.getByRole('tab', { name: '账号登录' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('坐标号')).toHaveAttribute('placeholder', '输入坐标号进入');
     expect(screen.getByText('XYZ')).toBeInTheDocument();
     expect(screen.getByLabelText('手机号')).toHaveAttribute('placeholder', '请输入手机号');
   });
