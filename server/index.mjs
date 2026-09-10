@@ -59,6 +59,18 @@ db.exec(`
   )
 `);
 db.exec(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'proposed',
+    proposal_version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    confirmed_at TEXT
+  )
+`);
+db.exec(`
   CREATE TABLE IF NOT EXISTS model_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
@@ -108,6 +120,32 @@ const toProjectJson = (row) => ({
   phase: row.phase ?? 'consulting',
 });
 const toMessageJson = (row) => ({ id: row.id, author: row.author, text: row.text, created_at: row.created_at });
+// 步骤4任务确认门:方案(title/detail)+状态(proposed/confirmed)+版本号。后端做状态检查+幂等。
+const toTaskJson = (row) => ({
+  id: row.id,
+  title: row.title,
+  detail: row.detail ?? '',
+  status: row.status,
+  proposalVersion: row.proposal_version,
+  created_at: row.created_at,
+  confirmed_at: row.confirmed_at ?? null,
+});
+const normalizeTaskInput = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('body 必须是对象');
+  const out = {};
+  if (value.title !== undefined) {
+    if (typeof value.title !== 'string' || !value.title.trim()) throw new Error('title 不能为空');
+    if (value.title.trim().length > 200) throw new Error('title 最多200个字');
+    out.title = value.title.trim();
+  }
+  if (value.detail !== undefined) {
+    if (typeof value.detail !== 'string') throw new Error('detail 必须是字符串');
+    if (value.detail.length > 2000) throw new Error('detail 最多2000字');
+    out.detail = value.detail;
+  }
+  return out;
+};
+const getTask = (projectId, taskId) => db.prepare('SELECT * FROM tasks WHERE id = ? AND project_id = ?').get(taskId, projectId);
 const insertMessage = (projectId, author, text) =>
   Number(db.prepare('INSERT INTO messages (project_id, author, text, created_at) VALUES (?, ?, ?, ?)').run(projectId, author, text, now()).lastInsertRowid);
 const readMessages = (projectId) =>
@@ -305,6 +343,58 @@ const server = createServer(async (req, res) => {
       const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
       if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
       return send(res, 200, { ok: true, summary: buildSummary(readConsensus(id)) });
+    }
+
+    // 6.7) 任务确认门:GET 列表 / POST 建方案 / PUT 修订(仅 proposed,版本号+1) / POST confirm 显式确认
+    const taskList = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks$/);
+    if (taskList && (req.method === 'GET' || req.method === 'POST')) {
+      const id = Number(taskList[1]);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
+      if (req.method === 'GET') {
+        const rows = db.prepare('SELECT * FROM tasks WHERE project_id = ? ORDER BY id').all(id);
+        return send(res, 200, { ok: true, tasks: rows.map(toTaskJson) });
+      }
+      let input;
+      try {
+        input = normalizeTaskInput(JSON.parse((await readBody(req)) || '{}'));
+        if (!input.title) throw new Error('title 不能为空');
+      } catch (error) {
+        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '任务格式错误' });
+      }
+      const taskId = Number(db.prepare('INSERT INTO tasks (project_id, title, detail, created_at) VALUES (?, ?, ?, ?)').run(id, input.title, input.detail ?? '', now()).lastInsertRowid);
+      return send(res, 201, { ok: true, task: toTaskJson(getTask(id, taskId)) });
+    }
+    const taskOne = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks\/(\d+)$/);
+    if (req.method === 'PUT' && taskOne) {
+      const id = Number(taskOne[1]);
+      const task = getTask(id, Number(taskOne[2]));
+      if (!task) return send(res, 404, { ok: false, error: '任务不存在' });
+      if (task.status !== 'proposed') return send(res, 409, { ok: false, error: '任务已确认,不能再改方案(请另建新任务)', status: task.status });
+      let input;
+      try {
+        input = normalizeTaskInput(JSON.parse((await readBody(req)) || '{}'));
+        if (input.title === undefined && input.detail === undefined) throw new Error('至少改 title 或 detail 其中之一');
+      } catch (error) {
+        return send(res, 400, { ok: false, error: error instanceof Error ? error.message : '任务格式错误' });
+      }
+      db.prepare('UPDATE tasks SET title = ?, detail = ?, proposal_version = proposal_version + 1 WHERE id = ?').run(
+        input.title ?? task.title, input.detail ?? task.detail, task.id);
+      return send(res, 200, { ok: true, task: toTaskJson(getTask(id, task.id)) });
+    }
+    const taskConfirm = url.pathname.match(/^\/api\/projects\/(\d+)\/tasks\/(\d+)\/confirm$/);
+    if (req.method === 'POST' && taskConfirm) {
+      const id = Number(taskConfirm[1]);
+      const task = getTask(id, Number(taskConfirm[2]));
+      if (!task) return send(res, 404, { ok: false, error: '任务不存在' });
+      const body = JSON.parse((await readBody(req)) || '{}');
+      if (!Number.isInteger(body.proposalVersion)) return send(res, 400, { ok: false, error: 'body 必须是 {proposalVersion:整数}' });
+      if (body.proposalVersion !== task.proposal_version) {
+        return send(res, 409, { ok: false, error: '方案已更新,请按最新版本确认', status: task.status, currentVersion: task.proposal_version });
+      }
+      if (task.status === 'confirmed') return send(res, 200, { ok: true, idempotent: true, task: toTaskJson(task) });
+      db.prepare("UPDATE tasks SET status = 'confirmed', confirmed_at = ? WHERE id = ?").run(now(), task.id);
+      return send(res, 200, { ok: true, idempotent: false, task: toTaskJson(getTask(id, task.id)) });
     }
 
     // 7) 统一对话:用户消息存档(重试去重) -> 真实模型 -> 诚实性网关 -> 存档返回

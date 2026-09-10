@@ -22,6 +22,10 @@ node server/index.mjs
 | GET | `/api/projects/:id/messages` | 全部消息(老项目自动补开场白) |
 | GET/PUT | `/api/projects/:id/consensus` | 项目记忆(事实/决定/历史)；PUT 只支持 `{op:'correct',id,text}` 纠正 |
 | GET | `/api/projects/:id/summary` | 记忆摘要：记住什么 + 哪些可能不准(前端快捷键入口后续加) |
+| GET | `/api/projects/:id/tasks` | 任务方案列表(步骤4确认门) |
+| POST | `/api/projects/:id/tasks` | 建方案,Body `{"title":"...","detail":"..."}`(后者可选)；返回 `status=proposed,proposalVersion=1` |
+| PUT | `/api/projects/:id/tasks/:taskId` | 修订方案(仅 proposed 可改,版本号+1)；已确认改→409 |
+| POST | `/api/projects/:id/tasks/:taskId/confirm` | 显式确认,Body `{"proposalVersion":整数}`；版本过期→409(含 `currentVersion`)；重复确认→200幂等 |
 | POST | `/api/projects/:id/chat` | AI 对话,Body `{"text":"..."}`；返回 `{mode,reply,done,project}`；模型失败时明确报错+可重试(503 未配置/429 超预算/504 超时/502 调用失败) |
 
 提示词见 `server/prompts.js`,行业模板见 `server/templates/`,后端硬规则见 `server/policy.js`。
