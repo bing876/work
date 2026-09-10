@@ -3,7 +3,7 @@ import { useWorkbenchClient } from './workbench-context';
 import type { AgentTurn, CreateProjectInput, CreateProjectResult, Message, RailSection, WorkbenchBootstrap } from '../client/workbench-client';
 import { AppShell } from '../features/AppShell';
 
-type State = { data: WorkbenchBootstrap | null; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
+type State = { data: WorkbenchBootstrap | null; bootError: string | null; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
 type Action = { type: 'boot'; data: WorkbenchBootstrap } | { type: 'set'; patch: Partial<State> } | { type: 'append'; conversationId: string; message: Message } | { type: 'project'; result: CreateProjectResult } | { type: 'agent-turn'; result: AgentTurn };
 const reducer = (state: State, action: Action): State => {
   if (action.type === 'boot') return { ...state, data: action.data, conversationId: action.data.conversations[0]?.id ?? '' };
@@ -22,9 +22,10 @@ const reducer = (state: State, action: Action): State => {
 
 export function App() {
   const client = useWorkbenchClient();
-  const [state, dispatch] = useReducer(reducer, { data: null, section: 'conversations', conversationId: '', search: '', searchFocused: false, sidebarWidth: 250, collapsed: false, toolOpen: false, modelOpen: false, createProjectDialogOpen: false, settingsOpen: false });
-  useEffect(() => { void client.bootstrap().then(data => dispatch({ type: 'boot', data })); }, [client]);
+  const [state, dispatch] = useReducer(reducer, { data: null, bootError: null, section: 'conversations', conversationId: '', search: '', searchFocused: false, sidebarWidth: 250, collapsed: false, toolOpen: false, modelOpen: false, createProjectDialogOpen: false, settingsOpen: false });
+  useEffect(() => { void client.bootstrap().then(data => dispatch({ type: 'boot', data })).catch((error: unknown) => dispatch({ type: 'set', patch: { bootError: error instanceof Error ? error.message : '启动失败' } })); }, [client]);
   const selectedConversation = useMemo(() => state.data?.conversations.find(item => item.id === state.conversationId) ?? null, [state.data, state.conversationId]);
+  if (state.bootError) return <main className="loading-shell"><div><p>启动失败:{state.bootError}</p><button type="button" onClick={() => window.location.reload()}>重试</button></div></main>;
   if (!state.data) return <main className="loading-shell">Loading Workbench vNext…</main>;
   const createProject = async (input: CreateProjectInput) => dispatch({ type: 'project', result: await client.createProject(input) });
   return <AppShell state={{ ...state, data: state.data }} dispatch={dispatch} client={client} selectedConversation={selectedConversation} onCreateProject={createProject} />;

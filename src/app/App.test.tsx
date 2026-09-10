@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { WorkbenchClientProvider } from './workbench-context';
 import { MockWorkbenchClient } from '../client/mock-workbench-client';
+import type { WorkbenchClient } from '../client/workbench-client';
 
 describe('Phase 0.7 project rail and sidebar', () => {
   it('switches the selected project between Rail and Sidebar and exposes source search and creation states', async () => {
@@ -73,5 +74,18 @@ describe('Phase 0.7 project rail and sidebar', () => {
     expect(sidebarProjects).toEqual([expect.stringContaining('春季新品发布'), expect.stringContaining('项目一'), expect.stringContaining('项目二')]);
     expect(screen.getByRole('button', { name: /项目一/ })).toHaveAttribute('aria-pressed', 'true');
     expect(within(screen.getByRole('region', { name: '项目执行状态' })).getByText('项目一')).toBeInTheDocument();
+  });
+});
+
+describe('App 启动失败', () => {
+  it('后端连不上时显示明确错误和重试按钮,而不是无限 Loading', async () => {
+    const failingClient: WorkbenchClient = {
+      bootstrap: () => Promise.reject(new Error('连不上后端服务,请确认后端已启动')),
+      sendMessage: () => Promise.reject(new Error('not implemented')),
+      createProject: () => Promise.reject(new Error('not implemented')),
+    };
+    render(<WorkbenchClientProvider client={failingClient}><App /></WorkbenchClientProvider>);
+    expect(await screen.findByText(/启动失败:连不上后端服务/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
   });
 });
