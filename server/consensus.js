@@ -12,23 +12,39 @@ const clip = (value, length) => String(value ?? '').trim().slice(0, length);
 const newId = () => `c${Date.now().toString(36)}${Math.floor(Math.random() * 0xffff).toString(36).padStart(3, '0')}`;
 const now = () => new Date().toISOString();
 
+// 记忆块收尾写法兼容:模型有时不写【记住结束】而写【/记住】等变体,全部认。
+export const MEMORY_START = '【记住】';
+export const MEMORY_ENDS = ['【记住结束】', '【/记住】', '【记住/】'];
 // 从模型回复中提取【标记块】。返回 {items, stripped}:
-// items = 条目文本(最多5条,每条最多100字);stripped = 去掉整块后的展示文本(静默,不留附注)。
-export function extractMarked(replyText, startTag, endTag) {
+// items = 条目文本(全部块合计最多5条,每条最多100字);
+// stripped = 剥掉所有标记块后的展示文本。循环处理多块;未闭合则截到末尾——用户永远看不到标记。
+export function extractMarked(replyText, startTag, endTags) {
   const text = String(replyText ?? '');
-  const start = text.indexOf(startTag);
-  if (start === -1) return { items: [], stripped: text };
-  const end = text.indexOf(endTag, start + startTag.length);
-  if (end === -1) return { items: [], stripped: text };
-  const items = text
-    .slice(start + startTag.length, end)
-    .split('\n')
-    .map((line) => clip(line.replace(/^[\d.、\-*)\s【】]+/, ''), 100))
-    .filter((line) => line && !line.includes('【'))
-    .slice(0, 5);
-  const stripped = (text.slice(0, start) + text.slice(end + endTag.length)).replace(/\n{3,}/g, '\n\n').trim();
-  return { items, stripped };
-}
+  const ends = Array.isArray(endTags) ? endTags : [endTags];
+  let remaining = text;
+  const items = [];
+  for (;;) {
+    const start = remaining.indexOf(startTag);
+    if (start === -1) break;
+    let end = -1;
+    let endLen = 0;
+    for (const tag of ends) {
+      const i = remaining.indexOf(tag, start + startTag.length);
+      if (i !== -1 && (end === -1 || i < end)) {
+        end = i;
+        endLen = tag.length;
+      }
+    }
+    const inner = end === -1 ? remaining.slice(start + startTag.length) : remaining.slice(start + startTag.length, end);
+    for (const line of inner.split('\n')) {
+      if (items.length >= 5) break;
+      const clean = clip(line.replace(/^[\d.、\-*)\s【】]+/, ''), 100);
+      if (clean && !clean.includes('【')) items.push(clean);
+    }
+    remaining = (remaining.slice(0, start) + (end === -1 ? '' : remaining.slice(end + endLen))).replace(/\n{3,}/g, '\n\n');
+  }
+  return { items, stripped: remaining.trim() };
+};
 
 // 用户推测检测:"也许/可能"类自动入库但标低置信度(摘要里提示可能不准)。
 // kind=decision(涉及钱/拍板)进决定区,否则进事实区。

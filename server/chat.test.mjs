@@ -34,6 +34,9 @@ const stub = createServer((req, res) => {
     if (stubMode === 'consensus') {
       return send(200, { choices: [{ message: { content: '正文回答。\n【记住】\n先做代发试水\n主做茶叶\n【记住结束】' } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
     }
+    if (stubMode === 'variant') {
+      return send(200, { choices: [{ message: { content: '要不先挑一个回我\n【记住】\n用户代发启动预算为一万元\n【/记住】' } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
+    }
     const lastUser = [...lastRequest.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
     const content = stubMode === 'claim' ? '我已经帮你发布到店铺了' : `STUB收到:${lastUser.slice(0, 30)}`;
     return send(200, { choices: [{ message: { content } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
@@ -219,6 +222,15 @@ describe('项目记忆', () => {
     assert.doesNotMatch(shown, /记住/);
     assert.doesNotMatch(shown, /记入/);
     assert.match(shown, /正文回答/);
+    stubMode = 'ok';
+  });
+
+  it('回归:模型写【/记住】变体时同样提取入库,展示文本干净结束', async () => {
+    stubMode = 'variant';
+    const data = await main.create('变体店', '聊聊预算');
+    assert.equal(data.consensus.decisions.length, 1);
+    assert.equal(data.consensus.decisions[0].text, '用户代发启动预算为一万元');
+    assert.equal(data.messages[2].text, '要不先挑一个回我');
     stubMode = 'ok';
   });
 

@@ -15,7 +15,7 @@ import { honestReply } from './policy.js';
 import { ModelError, callModel, loadModelConfig } from './model.js';
 import { buildMessages, buildSystemPrompt } from './prompts.js';
 import { serveStatic } from './static.js';
-import { applyCorrect, buildSummary, defaultConsensus, detectUserGuess, extractMarked, guessDecision, makeItem, saveRemembered } from './consensus.js';
+import { MEMORY_ENDS, MEMORY_START, applyCorrect, buildSummary, defaultConsensus, detectUserGuess, extractMarked, guessDecision, makeItem, saveRemembered } from './consensus.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 // 最小 .env 读取:只认 MODEL_* 键,已有环境变量优先;测试(DB_FILE=临时库)时跳过,保证 hermetic
@@ -164,7 +164,7 @@ const generateReply = async (projectId) => {
   const { text, usage } = await callModel({ config, messages: buildMessages(buildSystemPrompt(digest), history) });
   db.prepare('INSERT INTO model_usage (project_id, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?)').run(projectId, config.name, usage.promptTokens, usage.completionTokens, now());
   // 记忆提取:AI【记住】块 -> 自动入库(静默,无附注);同主题冲突自动过期旧条目
-  const marked = extractMarked(text, '【记住】', '【记住结束】');
+  const marked = extractMarked(text, MEMORY_START, MEMORY_ENDS);
   const reply = honestReply(marked.stripped);
   const assistantId = insertMessage(projectId, 'assistant', reply);
   let memoryUpdated = 0;

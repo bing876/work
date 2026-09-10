@@ -15,6 +15,22 @@ describe('项目记忆', () => {
     assert.match(stripped, /正文/);
   });
 
+  it('收尾变体【/记住】同样认,多块循环剥离', () => {
+    const { items, stripped } = extractMarked(
+      '正文\n【记住】\n预算一万\n【/记住】\n中间\n【记住】\n主做茶叶\n【记住结束】',
+      '【记住】', ['【记住结束】', '【/记住】', '【记住/】']);
+    assert.deepEqual(items, ['预算一万', '主做茶叶']);
+    assert.doesNotMatch(stripped, /记住/);
+    assert.match(stripped, /正文/);
+    assert.match(stripped, /中间/);
+  });
+
+  it('未闭合兜底:从【记住】到末尾照样提取并剥掉,用户看不到标记', () => {
+    const { items, stripped } = extractMarked('要不先挑一个回我\n【记住】\n用户代发启动预算为一万元', '【记住】', ['【记住结束】', '【/记住】']);
+    assert.deepEqual(items, ['用户代发启动预算为一万元']);
+    assert.equal(stripped, '要不先挑一个回我');
+  });
+
   it('用户推测检测:也许/可能入库,涉及钱标 decision', () => {
     assert.deepEqual(detectUserGuess('也许可以投入两万元'), { kind: 'decision' });
     assert.deepEqual(detectUserGuess('也许茶叶更好卖一些'), { kind: 'fact' });
