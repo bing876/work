@@ -38,3 +38,13 @@ describe('MockWorkbenchClient createProject', () => {
     expect(project.project.avatar).toEqual(avatar);
   });
 });
+
+describe('MockWorkbenchClient.updateProjectProfile', () => {
+  it('内存更新资料并返回', async () => {
+    const client = new MockWorkbenchClient();
+    const profile = { productName: '白茶', category: '茶叶', price: '99', specs: '500g', sellingPoints: '香', notes: '' };
+    const updated = await client.updateProjectProfile({ projectId: 'project-launch', profile });
+    expect(updated.profile).toEqual(profile);
+    await expect(client.updateProjectProfile({ projectId: '不存在', profile })).rejects.toThrow('项目不存在');
+  });
+});

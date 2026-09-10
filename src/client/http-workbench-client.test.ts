@@ -59,3 +59,23 @@ describe('HttpWorkbenchClient', () => {
     await expect(new HttpWorkbenchClient().bootstrap()).rejects.toThrow('连不上后端服务');
   });
 });
+
+describe('HttpWorkbenchClient.updateProjectProfile', () => {
+  const profile = { productName: '云南白茶', category: '茶叶', price: '99元', specs: '500g', sellingPoints: '高山', notes: '' };
+
+  it('PUT 资料并返回后端项目', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, project: { ...row(1, '云南白茶'), profile } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const updated = await new HttpWorkbenchClient().updateProjectProfile({ projectId: 'srv-1', profile });
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/1', expect.objectContaining({ method: 'PUT' }));
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ profile });
+    expect(updated).toMatchObject({ id: 'srv-1', profile });
+  });
+
+  it('非后端项目 id 直接拒绝,不发请求', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(new HttpWorkbenchClient().updateProjectProfile({ projectId: 'mock-project-1', profile })).rejects.toThrow('不是后端项目');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

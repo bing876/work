@@ -8,8 +8,10 @@ import type {
   CreateProjectResult,
   Message,
   ModelOption,
+  ProductProfile,
   Project,
   SendMessageInput,
+  UpdateProjectProfileInput,
   WorkbenchBootstrap,
   WorkbenchClient,
 } from './workbench-client';
@@ -19,6 +21,7 @@ interface ServerProject {
   id: number;
   name: string;
   created_at: string;
+  profile: ProductProfile | null;
 }
 
 const MODELS: ModelOption[] = [
@@ -46,6 +49,7 @@ function toProject(row: ServerProject, avatarIndex: number, avatar?: Project['av
     status: 'executing',
     template: isLaunch(row.name, '') ? 'launch' : 'general',
     avatar: avatar ?? defaultProjectAvatar(avatarIndex),
+    profile: row.profile,
   };
 }
 
@@ -140,6 +144,18 @@ export class HttpWorkbenchClient implements WorkbenchClient {
       artifacts: [],
       initialMessage,
     };
+  }
+
+  async updateProjectProfile(input: UpdateProjectProfileInput): Promise<Project> {
+    const match = input.projectId.match(/^srv-(\d+)$/);
+    if (!match) throw new Error('该项目不是后端项目,不支持在线保存资料');
+    const data = await this.request<{ project: ServerProject }>(`/api/projects/${match[1]}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: input.profile }),
+    });
+    // 注意:后端不存头像,调用方需把当前头像合并回来(见 ProductProfileCard)
+    return toProject(data.project, 0);
   }
 
   // 任务2范围:后端还没有对话/AI 接口,先本地确定性回复,保证界面不断档。

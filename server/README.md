@@ -10,14 +10,21 @@ node server/index.mjs
 # 或:npm run server
 ```
 
-## 接口(共 4 个)
+## 接口(共 5 个)
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | 健康检查,返回 `{"ok":true,...}` |
-| GET | `/api/projects` | 项目列表 |
+| GET | `/api/projects` | 项目列表(含 `profile` 资料,未填为 `null`) |
 | POST | `/api/projects` | 创建项目,Body `{"name":"xxx"}` |
 | GET | `/api/projects/:id` | 单个项目 |
+| PUT | `/api/projects/:id` | 保存商品资料,Body `{"profile":{"productName":"","category":"","price":"","specs":"","sellingPoints":"","notes":""}}`(只收这6个字符串字段,单个最多2000字) |
+
+## 测试
+
+```bash
+npm run test:server   # Node 自带测试运行器,不需要装依赖
+```
 
 ## 数据
 

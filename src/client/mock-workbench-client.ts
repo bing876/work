@@ -1,4 +1,4 @@
-import type { AgentSummary, AgentTurn, Artifact, CreateProjectInput, CreateProjectResult, Message, Project, SendMessageInput, Task, WorkbenchBootstrap, WorkbenchClient } from './workbench-client';
+import type { AgentSummary, AgentTurn, Artifact, CreateProjectInput, CreateProjectResult, Message, Project, SendMessageInput, Task, UpdateProjectProfileInput, WorkbenchBootstrap, WorkbenchClient } from './workbench-client';
 import { defaultProjectAvatar } from '../assets/project-avatars';
 
 const initial: WorkbenchBootstrap = {
@@ -104,6 +104,15 @@ export class MockWorkbenchClient implements WorkbenchClient {
     this.state.conversations.push(conversation);
     this.state.messages[conversation.id] = messages;
     return clone({ project, agent, conversation, messages, tasks, artifacts, initialMessage });
+  }
+
+  // Mock 版只存内存,刷新就丢(和 Mock 其他数据行为一致)
+  async updateProjectProfile(input: UpdateProjectProfileInput): Promise<Project> {
+    const project = this.state.projects.find((item) => item.id === input.projectId);
+    if (!project) throw new Error('项目不存在');
+    const updated: Project = { ...project, profile: clone(input.profile) };
+    this.state.projects = this.state.projects.map((item) => item.id === project.id ? updated : item);
+    return clone(updated);
   }
 
   private workflowTasks(project: Project): Task[] {
