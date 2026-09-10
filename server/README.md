@@ -16,7 +16,7 @@ node server/index.mjs
 |---|---|---|
 | GET | `/health` | 健康检查,返回 `{"ok":true,...}` |
 | POST | `/api/auth/code` | 发验证码,Body `{"phone":"..."}`；开发阶段固定返回 123456(短信商预留) |
-| POST | `/api/auth/login-phone` | 手机+验证码登录,Body `{"phone","code"}`；未注册自动注册(配 XYZ 坐标号)+提示设密码；返回 `{token,registered,needPassword,user}` |
+| POST | `/api/auth/login-phone` | 手机+验证码登录,Body `{"phone","code"}`；未注册自动注册(随机配 XYZ 坐标号,4位起,撞号重抽)+提示设密码；返回 `{token,registered,needPassword,user}` |
 | POST | `/api/auth/login-id` | 坐标号+密码登录,Body `{"coordinateId","password"}`(大小写不敏感)；不存在/未设密码/密码错各有明确 401 |
 | POST | `/api/auth/set-password` | (需登录)设密码,Body `{"password":"..."}`(≥6位,scrypt 存哈希) |
 | GET | `/api/auth/me` | (需登录)当前身份 |

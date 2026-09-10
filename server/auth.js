@@ -98,13 +98,21 @@ export const verifyCode = (phone, code) => {
 export const toUserJson = (row) => ({ id: row.id, phone: row.phone, coordinateId: row.coordinate_id, created_at: row.created_at });
 export const findUserByPhone = (db, phone) => db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
 export const findUserByCoordinate = (db, cid) => db.prepare('SELECT * FROM users WHERE coordinate_id = ?').get(cid);
-// 分配坐标号:当前最大数字+1(XYZ1000 起,位数自然增长);并发撞车靠 UNIQUE + 注册重试
+// 分配坐标号:随机抽号(XYZ + 4位起,撞号自动重抽;4位抽满升5位,以此类推);分配后永久不变
 export const allocateCoordinate = (db) => {
+  for (const width of [4, 5, 6, 7, 8]) {
+    const min = 10 ** (width - 1);
+    const max = 10 ** width - 1;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const candidate = `XYZ${min + Math.floor(Math.random() * (max - min + 1))}`;
+      if (!findUserByCoordinate(db, candidate)) return candidate;
+    }
+  }
+  // 穷尽兜底(基本走不到):当前最大号+1
   const row = db
     .prepare("SELECT coordinate_id FROM users WHERE coordinate_id LIKE 'XYZ%' ORDER BY CAST(SUBSTR(coordinate_id, 4) AS INTEGER) DESC LIMIT 1")
     .get();
-  const next = row ? Number(row.coordinate_id.slice(3)) + 1 : COORD_START;
-  return `XYZ${Math.max(next, COORD_START)}`;
+  return `XYZ${(row ? Number(row.coordinate_id.slice(3)) : 0) + 1}`;
 };
 export const registerUser = (db, phone) => {
   let lastError;

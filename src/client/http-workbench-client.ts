@@ -18,6 +18,7 @@ import type {
   WorkbenchClient,
 } from './workbench-client';
 import { defaultProjectAvatar } from '../assets/project-avatars';
+import { notifyUnauthorized } from './auth';
 
 interface ServerProject {
   id: number;
@@ -99,19 +100,28 @@ function toConversation(row: ServerProject, project: Project): ConversationSumma
 
 export class HttpWorkbenchClient implements WorkbenchClient {
   private baseUrl: string;
+  private getToken: (() => string | null) | null;
 
-  constructor(options: { baseUrl?: string } = {}) {
+  constructor(options: { baseUrl?: string; getToken?: () => string | null } = {}) {
     this.baseUrl = options.baseUrl ?? '';
+    this.getToken = options.getToken ?? null;
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     let response: Response;
+    const token = this.getToken?.();
+    const headers: Record<string, string> = { ...((init?.headers as Record<string, string> | undefined) ?? {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
     try {
-      response = await fetch(`${this.baseUrl}${path}`, init);
+      response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
     } catch {
       throw new Error('连不上后端服务,请确认后端已启动');
     }
     const data = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    if (response.status === 401) {
+      notifyUnauthorized();
+      throw new Error('登录已过期,请重新登录');
+    }
     if (!response.ok || !data || data.ok !== true) {
       throw new Error(typeof data?.error === 'string' ? data.error : `后端返回异常(${response.status})`);
     }

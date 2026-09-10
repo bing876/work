@@ -22,7 +22,7 @@ describe('HttpWorkbenchClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const data = await new HttpWorkbenchClient().bootstrap();
-    expect(fetchMock).toHaveBeenCalledWith('/api/projects', undefined);
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects', { headers: {} });
     expect(data.projects).toHaveLength(1);
     expect(data.projects[0]).toMatchObject({ id: 'srv-1', name: '云南白茶' });
     expect(data.conversations).toHaveLength(1);
@@ -110,7 +110,7 @@ describe('HttpWorkbenchClient consensus', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, consensus: empty }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(new HttpWorkbenchClient().getConsensus('srv-1')).resolves.toMatchObject({ version: 2 });
-    expect(fetchMock).toHaveBeenCalledWith('/api/projects/1/consensus', undefined);
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/1/consensus', { headers: {} });
   });
   it('纠正走 PUT correct 并返回新区', async () => {
     const next = { ...empty, facts: [{ id: 'c2', text: '预算一万', kind: 'decision', origin: 'ai', confidence: 'high', status: 'decided', source: { messageId: 1 }, updatedAt: '' }] };

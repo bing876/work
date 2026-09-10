@@ -42,6 +42,7 @@ const PHONE_B = '13800000002';
 let tokenA;
 let tokenB;
 let coordA;
+let coordB;
 
 describe('账号系统', () => {
   it('发码:开发固定码提示;坏手机号→400', async () => {
@@ -52,7 +53,7 @@ describe('账号系统', () => {
     assert.equal((await req('POST', '/api/auth/code', { phone: 'abc' })).status, 400);
   });
 
-  it('用例1:新手机验证码注册→自动得 XYZ1000+设密码提示', async () => {
+  it('用例1:新手机验证码注册→自动得随机坐标号+设密码提示', async () => {
     const bad = await req('POST', '/api/auth/login-phone', { phone: PHONE_A, code: '000000' });
     assert.equal(bad.status, 401);
     assert.equal(bad.json.code, 'BAD_CODE');
@@ -61,7 +62,7 @@ describe('账号系统', () => {
     assert.equal(json.registered, true);
     assert.equal(json.needPassword, true);
     assert.match(json.message, /设置登录密码/);
-    assert.equal(json.user.coordinateId, 'XYZ1000');
+    assert.match(json.user.coordinateId, /^XYZ\d{4,}$/);
     assert.ok(!('password_hash' in json.user));
     assert.ok(json.token.length > 20);
     tokenA = json.token;
@@ -71,7 +72,9 @@ describe('账号系统', () => {
   it('用例2:第二个用户→XYZ1001', async () => {
     const { status, json } = await req('POST', '/api/auth/login-phone', { phone: PHONE_B, code: '123456' });
     assert.equal(status, 200);
-    assert.equal(json.user.coordinateId, 'XYZ1001');
+    assert.match(json.user.coordinateId, /^XYZ\d{4,}$/);
+    assert.notEqual(json.user.coordinateId, coordA);
+    coordB = json.user.coordinateId;
     tokenB = json.token;
   });
 
@@ -86,10 +89,10 @@ describe('账号系统', () => {
     const wrongPw = await req('POST', '/api/auth/login-id', { coordinateId: coordA, password: 'nope-nope' });
     assert.equal(wrongPw.status, 401);
     assert.match(wrongPw.json.error, /密码错误/);
-    const noId = await req('POST', '/api/auth/login-id', { coordinateId: 'XYZ9999', password: 'x' });
+    const noId = await req('POST', '/api/auth/login-id', { coordinateId: 'XYZ100000000', password: 'x' });
     assert.equal(noId.status, 401);
     assert.match(noId.json.error, /坐标号不存在/);
-    const noPw = await req('POST', '/api/auth/login-id', { coordinateId: 'XYZ1001', password: 'x' });
+    const noPw = await req('POST', '/api/auth/login-id', { coordinateId: coordB, password: 'x' });
     assert.equal(noPw.status, 401);
     assert.match(noPw.json.error, /尚未设置密码/);
     assert.equal((await req('POST', '/api/auth/login-id', { coordinateId: 'ABC', password: 'x' })).status, 400);
@@ -102,7 +105,7 @@ describe('账号系统', () => {
     assert.equal(json.needPassword, false);
     const me = await req('GET', '/api/auth/me', undefined, json.token);
     assert.equal(me.status, 200);
-    assert.equal(me.json.user.coordinateId, 'XYZ1000');
+    assert.equal(me.json.user.coordinateId, coordA);
   });
 
   it('用例5:A 建项目 B 查不到(列表/单查/改资料/聊天/任务全隔离)', async () => {
@@ -132,13 +135,20 @@ describe('账号系统', () => {
     assert.ok((await fetch(`${base}/health`)).ok); // 健康检查仍公开
   });
 
-  it('坐标号位数自然增长:XYZ9999 之后是 XYZ10000', () => {
+  it('坐标号随机分配:候选撞号自动换号(伪随机序列,确定性)', () => {
     const mem = new DatabaseSync(join(dir, 'coord.db'));
     mem.exec(USERS_DDL);
-    mem.prepare('INSERT INTO users (phone, password_hash, coordinate_id, created_at) VALUES (?, ?, ?, ?)').run('10000000001', null, 'XYZ9999', 't');
-    assert.equal(allocateCoordinate(mem), 'XYZ10000');
-    mem.prepare('INSERT INTO users (phone, password_hash, coordinate_id, created_at) VALUES (?, ?, ?, ?)').run('10000000002', null, 'XYZ10000', 't');
-    assert.equal(allocateCoordinate(mem), 'XYZ10001');
+    const orig = Math.random;
+    try {
+      Math.random = () => 0;
+      assert.equal(allocateCoordinate(mem), 'XYZ1000');
+      mem.prepare('INSERT INTO users (phone, password_hash, coordinate_id, created_at) VALUES (?, ?, ?, ?)').run('10000000001', null, 'XYZ1000', 't');
+      let n = 0;
+      Math.random = () => [0, 0.5][n++] ?? 0.9;
+      assert.equal(allocateCoordinate(mem), 'XYZ5500'); // 首抽撞号,次抽命中
+    } finally {
+      Math.random = orig;
+    }
     mem.close();
   });
 });
