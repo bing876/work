@@ -20,17 +20,17 @@ describe('MockWorkbenchClient createProject', () => {
   it('访谈5问后生成档案和计划,之后不再提问', async () => {
     const client = new MockWorkbenchClient();
     const project = await client.createProject(input({ name: '白茶店' }));
-    expect(project.messages[0].text).toMatch('项目顾问');
-    const answers = ['卖茶叶', '云南白茶', '白领', '99元', '淘宝'];
+    expect(project.messages[0].text).toMatch('AI产品经理');
+    const answers = ['卖茶叶', '云南白茶', '99元', '白领', '淘宝'];
     let last = null;
     for (const text of answers) {
       last = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text, modelId: 'chatgpt' });
     }
-    expect(last?.message.text).toMatch('访谈完成');
+    expect(last?.message.text).toMatch('信息收集完毕');
     expect(last?.project?.profile).toMatchObject({ productName: '云南白茶', price: '99元' });
     expect(last?.project?.plan).toMatch('执行计划');
     const extra = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '再问', modelId: 'chatgpt' });
-    expect(extra.message.text).toMatch('已完成');
+    expect(extra.message.text).toMatch('初稿已生成');
   });
 
   it('keeps an uploaded avatar when one is supplied at creation', async () => {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HttpWorkbenchClient } from './http-workbench-client';
 
-const row = (id: number, name: string) => ({ id, name, created_at: '2026-09-10T09:19:39.268Z', profile: null, plan: null });
+const row = (id: number, name: string) => ({ id, name, created_at: '2026-09-10T09:19:39.268Z', profile: null, plan: null, draft: null });
 const msg = (id: number, author: string, text: string) => ({ id, author, text, created_at: '2026-09-10T09:19:39.268Z' });
 const jsonResponse = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
@@ -13,7 +13,7 @@ describe('HttpWorkbenchClient', () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, count: 1, projects: [row(1, '云南白茶')] }));
       if (url === '/api/projects/1/messages') {
-        return Promise.resolve(jsonResponse({ ok: true, messages: [msg(1, 'assistant', '您好！我是您的项目顾问')] }));
+        return Promise.resolve(jsonResponse({ ok: true, messages: [msg(1, 'assistant', '您好！我是您的AI产品经理')] }));
       }
       throw new Error(`unexpected fetch ${url}`);
     });
@@ -104,11 +104,11 @@ describe('HttpWorkbenchClient.sendMessage', () => {
     expect(turn.project).toBeUndefined();
   });
 
-  it('访谈完成时附带更新后的项目', async () => {
+  it('引导完成时附带更新后的项目', async () => {
     const profile = { productName: '白茶', category: '茶', price: '99', specs: '', sellingPoints: '', notes: '' };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
-      ok: true, reply: { text: '访谈完成！' }, done: true,
-      project: { id: 1, name: '白茶店', created_at: '2026-09-10T09:19:39.268Z', profile, plan: '【执行计划】' },
+      ok: true, reply: { text: '信息收集完毕！' }, done: true,
+      project: { id: 1, name: '白茶店', created_at: '2026-09-10T09:19:39.268Z', profile, plan: '【执行计划】', draft: '【初版上架文案】' },
     }));
     vi.stubGlobal('fetch', fetchMock);
     const turn = await new HttpWorkbenchClient().sendMessage({ conversationId: 'conv-srv-1', agentId: 'srv-1', text: '淘宝', modelId: 'chatgpt' });

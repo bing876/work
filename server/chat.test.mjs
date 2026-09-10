@@ -37,7 +37,7 @@ describe('访谈流程', () => {
     const data = await res.json();
     assert.equal(data.messages.length, 1);
     assert.equal(data.messages[0].author, 'assistant');
-    assert.match(data.messages[0].text, /项目顾问/);
+    assert.match(data.messages[0].text, /AI产品经理/);
   });
 
   it('创建时带第一句话,直接追问第2问', async () => {
@@ -45,24 +45,26 @@ describe('访谈流程', () => {
     const data = await res.json();
     assert.equal(data.messages.length, 3);
     assert.equal(data.messages[1].text, '我想卖茶叶');
-    assert.match(data.messages[2].text, /商品或服务/);
+    assert.match(data.messages[2].text, /明白了，您要做茶叶生意/);
   });
 
   it('答满5题后自动生成档案和计划', async () => {
     const created = await (await post('/api/projects', { name: '白茶店' })).json();
     const id = created.project.id;
-    const answers = ['我想卖茶叶', '云南白茶500g/袋', '25-35岁白领', '99元', '淘宝和抖音'];
+    const answers = ['我想卖茶叶', '云南白茶500g/袋', '99元', '25-35岁白领', '淘宝和抖音'];
     let last;
     for (const text of answers) {
       last = await (await post(`/api/projects/${id}/chat`, { text })).json();
     }
     assert.equal(last.ok, true);
     assert.equal(last.done, true);
-    assert.match(last.reply.text, /访谈完成/);
+    assert.match(last.reply.text, /信息收集完毕，我开始为您生成上架文案/);
+    assert.match(last.reply.text, /初版上架文案/);
     assert.equal(last.project.profile.productName, '云南白茶500g/袋');
     assert.equal(last.project.profile.price, '99元');
     assert.match(last.project.plan, /执行计划/);
     assert.match(last.project.plan, /淘宝和抖音/);
+    assert.match(last.project.draft, /标题:云南白茶500g\/袋/);
 
     const single = await (await fetch(`${BASE}/api/projects/${id}`)).json();
     assert.equal(single.project.profile.category, '我想卖茶叶');
@@ -81,5 +83,28 @@ describe('访谈流程', () => {
     assert.equal(empty.status, 400);
     const missing = await post('/api/projects/999/chat', { text: 'hi' });
     assert.equal(missing.status, 404);
+  });
+});
+
+describe('引导式理解', () => {
+  it('能识别生意类型并复述,价格影响文案风格', async () => {
+    const created = await (await post('/api/projects', { name: '理解店' })).json();
+    const id = created.project.id;
+    const r1 = await (await post(`/api/projects/${id}/chat`, { text: '我想卖女装' })).json();
+    assert.match(r1.reply.text, /明白了，您要做服装生意/);
+    assert.match(r1.reply.text, /准备上架资料/);
+    const r2 = await (await post(`/api/projects/${id}/chat`, { text: '连衣裙' })).json();
+    assert.match(r2.reply.text, /好的，连衣裙/);
+    assert.match(r2.reply.text, /正在为您生成商品标题和卖点/);
+    const r3 = await (await post(`/api/projects/${id}/chat`, { text: '899元' })).json();
+    assert.match(r3.reply.text, /偏向高端质感/);
+  });
+
+  it('没识别出来时兜底推进,不卡死', async () => {
+    const created = await (await post('/api/projects', { name: '兜底店' })).json();
+    const id = created.project.id;
+    const r1 = await (await post(`/api/projects/${id}/chat`, { text: '想做点小生意' })).json();
+    assert.match(r1.reply.text, /我来帮您推进/);
+    assert.match(r1.reply.text, /具体的商品是什么/);
   });
 });

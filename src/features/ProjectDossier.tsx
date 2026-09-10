@@ -21,7 +21,7 @@ export function ProjectDossier({ project, userAnswerCount }: { project: Project;
           <b>项目档案</b>
           <small>{project.name}</small>
         </span>
-        {done ? <em className="done">访谈完成</em> : <em>访谈中…已回答 {Math.min(userAnswerCount, TOTAL)}/{TOTAL}</em>}
+        {done ? <em className="done">引导完成</em> : <em>引导中…已了解 {Math.min(userAnswerCount, TOTAL)}/{TOTAL}</em>}
       </header>
       {done && project.profile ? (
         <>
@@ -41,7 +41,7 @@ export function ProjectDossier({ project, userAnswerCount }: { project: Project;
           )}
         </>
       ) : (
-        <p className="dossier-hint">项目顾问正在访谈中，请在下方对话框回答问题，答满 {TOTAL} 题后自动生成档案和执行计划。</p>
+        <p className="dossier-hint">AI产品经理正在了解您的需求，请在下方对话框回答，信息齐了就自动生成档案、计划和文案初稿。</p>
       )}
     </section>
   );

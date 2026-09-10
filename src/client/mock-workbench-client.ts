@@ -60,17 +60,35 @@ const initial: WorkbenchBootstrap = {
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
 // SCRIPT-MIRROR:与 server/interview.js 同步的演示副本(Mock 只演界面,不联网、不持久)。
-// 改问题文案或整理规则时,两边一起改。
-const MOCK_OPENING = '您好！我是您的项目顾问，请告诉我您想做什么生意？';
-const MOCK_QUESTIONS = [
-  MOCK_OPENING,
-  '您的商品或服务具体是什么？(比如:云南白茶500g/袋)',
-  '您的目标客户是谁？(比如:25-35岁办公室白领)',
-  '您的价格带大概是多少？(比如:99元/500g)',
-  '您主要在哪些渠道销售？(比如:淘宝、抖音、小红书)',
-];
-const MOCK_COMPLETED = '本次访谈已完成，项目档案和执行计划已生成，见上方「项目档案」卡。(Mock 演示数据,刷新即丢)';
+// 改文案规则时,两边一起改。
+const MOCK_OPENING = '您好！我是您的AI产品经理，我能为你做些什么？';
+const MOCK_COMPLETED = '上架文案初稿已生成(见上方对话)。(Mock 演示数据,刷新即丢)';
 const mockClip = (value: string, length: number) => value.trim().slice(0, length);
+const MOCK_INTENTS: { pattern: RegExp; intent: string; thing: string }[] = [
+  { pattern: /茶/, intent: '茶叶生意', thing: '茶叶' },
+  { pattern: /服装|衣服|女装|男装|童装|鞋|包/, intent: '服装生意', thing: '服装' },
+  { pattern: /美妆|化妆品|护肤|口红/, intent: '美妆生意', thing: '美妆产品' },
+  { pattern: /数码|手机|电子|耳机|电脑/, intent: '数码生意', thing: '数码产品' },
+  { pattern: /食品|零食|水果|特产/, intent: '食品生意', thing: '食品' },
+];
+const mockStyleForPrice = (text: string) => {
+  const number = Number(text.replace(/[^0-9.]/g, '').slice(0, 10));
+  if (!Number.isFinite(number) || number <= 0) return '突出核心卖点';
+  if (number >= 500) return '偏向高端质感';
+  if (number >= 100) return '兼顾品质与性价比';
+  return '突出性价比';
+};
+const mockReplyForStep = (step: number, answers: string[]): string => {
+  if (step === 1) {
+    const found = MOCK_INTENTS.find((rule) => rule.pattern.test(answers[0]));
+    if (found) return `明白了，您要做${found.intent}。我现在帮您准备上架资料，请告诉我具体是什么${found.thing}？`;
+    return `明白了，我来帮您推进「${mockClip(answers[0], 20)}」。我现在帮您准备上架资料，请告诉我具体的商品是什么？`;
+  }
+  if (step === 2) return `好的，${mockClip(answers[1], 24) || '这个商品'}。我正在为您生成商品标题和卖点，请告诉我价格定位，这样我能调整文案风格。`;
+  if (step === 3) return `收到，${mockClip(answers[2], 20) || '这个价位'}。我正在按这个价位打磨文案风格（${mockStyleForPrice(answers[2])}），请告诉我目标客户是谁，这样卖点能更对口味。`;
+  if (step === 4) return `好的，面向${mockClip(answers[3], 20) || '这类客户'}。我正在把卖点往这类人群的偏好上靠，请告诉我主要在哪些渠道销售，我好按平台调文案长度和格式。`;
+  return MOCK_COMPLETED;
+};
 
 export class MockWorkbenchClient implements WorkbenchClient {
   private state = clone(initial);
@@ -88,27 +106,29 @@ export class MockWorkbenchClient implements WorkbenchClient {
       return clone({ message: reply });
     }
     const answers = history.filter((item) => item.author === 'user').map((item) => item.text);
-    if (answers.length <= MOCK_QUESTIONS.length - 1) {
-      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: MOCK_QUESTIONS[answers.length] };
+    if (answers.length <= 4) {
+      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: mockReplyForStep(answers.length, answers) };
       this.state.messages[input.conversationId] = [...history, reply];
       return clone({ message: reply });
     }
-    if (answers.length === MOCK_QUESTIONS.length) {
+    if (answers.length === 5) {
       const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = answers;
+      const profile = {
+        productName: mockClip(a2, 30),
+        category: mockClip(a1, 20),
+        price: mockClip(a3, 30),
+        specs: '',
+        sellingPoints: '',
+        notes: mockClip(`需求整理:生意「${a1}」;商品「${a2}」;价格「${a3}」;客户「${a4}」;渠道「${a5}」`, 500),
+      };
       const updated: Project = {
         ...project,
-        profile: {
-          productName: mockClip(a2, 30),
-          category: mockClip(a1, 20),
-          price: mockClip(a4, 30),
-          specs: '',
-          sellingPoints: '',
-          notes: mockClip(`访谈整理:生意「${a1}」;商品「${a2}」;客户「${a3}」;价格「${a4}」;渠道「${a5}」`, 500),
-        },
-        plan: ['【执行计划】(Mock 演示版)', `一、定位:围绕「${mockClip(a1, 30)}」,首批聚焦「${mockClip(a3, 30)}」客户。`, `二、商品:上架「${mockClip(a2, 30)}」,价格带「${mockClip(a4, 30)}」。`, `三、渠道:优先铺设「${mockClip(a5, 40)}」。`, '四、下一步:完善商品卖点与详情文案。'].join('\n'),
+        profile,
+        plan: ['【执行计划】(Mock 演示版)', `一、定位:围绕「${mockClip(a1, 30)}」,首批聚焦「${mockClip(a4, 30)}」客户。`, `二、商品:上架「${mockClip(a2, 30)}」,价格带「${mockClip(a3, 30)}」。`, `三、渠道:优先铺设「${mockClip(a5, 40)}」。`, '四、下一步:打磨上架文案初稿。'].join('\n'),
+        draft: '【初版上架文案】(Mock 演示版)',
       };
       this.state.projects = this.state.projects.map((item) => item.id === project.id ? updated : item);
-      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: `访谈完成！已为您整理出项目档案和执行计划：\n商品:${updated.profile?.productName || '—'}｜类目:${updated.profile?.category || '—'}｜价格:${updated.profile?.price || '—'}\n完整档案见上方「项目档案」卡。` };
+      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: `信息收集完毕，我开始为您生成上架文案...\n\n商品:${profile.productName || '—'}｜类目:${profile.category || '—'}｜价格:${profile.price || '—'}\n档案和计划已同步到「项目档案」卡。` };
       this.state.messages[input.conversationId] = [...history, reply];
       return clone({ message: reply, project: updated });
     }
@@ -130,7 +150,7 @@ export class MockWorkbenchClient implements WorkbenchClient {
     const tasks = this.workflowTasks(project);
     const artifacts = this.workflowArtifacts(project);
     const opening: Message = { id: `message-${id}-opening`, author: 'assistant', agentId: id, text: MOCK_OPENING };
-    const followUp: Message = { id: `message-${id}-q2`, author: 'assistant', agentId: id, text: MOCK_QUESTIONS[1] };
+    const followUp: Message = { id: `message-${id}-q2`, author: 'assistant', agentId: id, text: mockReplyForStep(1, [input.initialMessage]) };
     const messages = initialMessage ? [opening, initialMessage, followUp] : [opening];
     this.state.projects.push(project);
     this.state.tasks.push(...tasks);

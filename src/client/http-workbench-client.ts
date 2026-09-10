@@ -23,6 +23,7 @@ interface ServerProject {
   created_at: string;
   profile: ProductProfile | null;
   plan: string | null;
+  draft: string | null;
 }
 
 interface ServerMessage {
@@ -59,6 +60,7 @@ function toProject(row: ServerProject, avatarIndex: number, avatar?: Project['av
     avatar: avatar ?? defaultProjectAvatar(avatarIndex),
     profile: row.profile,
     plan: row.plan,
+    draft: row.draft,
   };
 }
 
@@ -77,7 +79,7 @@ function toAgent(project: Project): AgentSummary {
     initials: project.name.slice(0, 1) || '项',
     tone: 'project-avatar',
     status: 'working',
-    preview: '项目顾问访谈中',
+    preview: 'AI产品经理引导中',
   };
 }
 

@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { COMPLETED_NOTE, OPENING, TOTAL_ANSWERS, compilePlan, compileProfile, finalMessage, replyFor } from './interview.js';
+import { COMPLETED_NOTE, OPENING, TOTAL_ANSWERS, compileDraft, compilePlan, compileProfile, finalMessage, replyForStep } from './interview.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 // 测试可用 DB_FILE 指向临时库,避免污染真实数据
@@ -46,6 +46,11 @@ const hasPlanColumn = db
   .all()
   .some((column) => column.name === 'plan_text');
 if (!hasPlanColumn) db.exec('ALTER TABLE projects ADD COLUMN plan_text TEXT');
+const hasDraftColumn = db
+  .prepare('PRAGMA table_info(projects)')
+  .all()
+  .some((column) => column.name === 'draft_text');
+if (!hasDraftColumn) db.exec('ALTER TABLE projects ADD COLUMN draft_text TEXT');
 
 const PROFILE_KEYS = ['productName', 'category', 'price', 'specs', 'sellingPoints', 'notes'];
 // 只收白名单里的6个字段,必须是字符串、每个最多2000字,多余的一律丢掉
@@ -66,6 +71,7 @@ const toProjectJson = (row) => ({
   created_at: row.created_at,
   profile: row.profile_json ? JSON.parse(row.profile_json) : null,
   plan: row.plan_text ?? null,
+  draft: row.draft_text ?? null,
 });
 const toMessageJson = (row) => ({ id: row.id, author: row.author, text: row.text, created_at: row.created_at });
 const insertMessage = (projectId, author, text) =>
@@ -115,7 +121,7 @@ const server = createServer(async (req, res) => {
 
     // 2) 项目列表
     if (req.method === 'GET' && url.pathname === '/api/projects') {
-      const rows = db.prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects ORDER BY id').all();
+      const rows = db.prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text FROM projects ORDER BY id').all();
       return send(res, 200, { ok: true, count: rows.length, projects: rows.map(toProjectJson) });
     }
 
@@ -133,10 +139,10 @@ const server = createServer(async (req, res) => {
       insertMessage(id, 'assistant', OPENING);
       if (initial) {
         insertMessage(id, 'user', initial);
-        insertMessage(id, 'assistant', replyFor(1));
+        insertMessage(id, 'assistant', replyForStep(1, [initial]));
       }
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text FROM projects WHERE id = ?')
         .get(id);
       return send(res, 201, { ok: true, project: toProjectJson(row), messages: readMessages(id) });
     }
@@ -145,7 +151,7 @@ const server = createServer(async (req, res) => {
     const single = url.pathname.match(/^\/api\/projects\/(\d+)$/);
     if (req.method === 'GET' && single) {
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text FROM projects WHERE id = ?')
         .get(Number(single[1]));
       if (!row) return send(res, 404, { ok: false, error: '项目不存在' });
       return send(res, 200, { ok: true, project: toProjectJson(row) });
@@ -164,7 +170,7 @@ const server = createServer(async (req, res) => {
       }
       db.prepare('UPDATE projects SET profile_json = ? WHERE id = ?').run(JSON.stringify(profile), id);
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text FROM projects WHERE id = ?')
         .get(id);
       return send(res, 200, { ok: true, project: toProjectJson(row) });
     }
@@ -183,7 +189,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && chat) {
       const id = Number(chat[1]);
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text FROM projects WHERE id = ?')
         .get(id);
       if (!row) return send(res, 404, { ok: false, error: '项目不存在' });
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -195,12 +201,13 @@ const server = createServer(async (req, res) => {
       let reply;
       let done = false;
       if (userAnswers.length <= TOTAL_ANSWERS - 1) {
-        reply = replyFor(userAnswers.length);
+        reply = replyForStep(userAnswers.length, userAnswers);
       } else if (userAnswers.length === TOTAL_ANSWERS) {
         const profile = compileProfile(userAnswers);
         const plan = compilePlan(userAnswers);
-        db.prepare('UPDATE projects SET profile_json = ?, plan_text = ? WHERE id = ?').run(JSON.stringify(profile), plan, id);
-        reply = finalMessage(profile);
+        const draft = compileDraft(userAnswers);
+        db.prepare('UPDATE projects SET profile_json = ?, plan_text = ?, draft_text = ? WHERE id = ?').run(JSON.stringify(profile), plan, draft, id);
+        reply = finalMessage(profile, draft);
         done = true;
       } else {
         reply = COMPLETED_NOTE;
@@ -208,7 +215,7 @@ const server = createServer(async (req, res) => {
       }
       insertMessage(id, 'assistant', reply);
       const updated = db
-        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
+        .prepare('SELECT id, name, created_at, profile_json, plan_text, draft_text FROM projects WHERE id = ?')
         .get(id);
       return send(res, 200, { ok: true, reply: { author: 'assistant', text: reply }, done, project: toProjectJson(updated) });
     }
