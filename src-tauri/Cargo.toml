@@ -1,0 +1,23 @@
+[package]
+name = "xyz-workbench"
+version = "0.1.0"
+description = "XYZ Workbench vNext desktop application"
+authors = ["XYZ"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "xyz_workbench_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
