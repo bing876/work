@@ -17,20 +17,37 @@ describe('MockWorkbenchClient createProject', () => {
     expect(first.initialMessage).toMatchObject({ author: 'user', text: '整理项目范围', attachments: [{ displayName: 'brief.md' }] });
   });
 
-  it('访谈5问后生成档案和计划,之后不再提问', async () => {
+  it('阶段流转:咨询->收集->确认->执行->暂停/继续->完成', async () => {
     const client = new MockWorkbenchClient();
     const project = await client.createProject(input({ name: '白茶店' }));
+    expect(project.project.phase).toBe('consulting');
     expect(project.messages[0].text).toMatch('AI产品经理');
-    const answers = ['卖茶叶', '云南白茶', '99元', '白领', '淘宝'];
-    let last = null;
-    for (const text of answers) {
-      last = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text, modelId: 'chatgpt' });
+    const ask = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '你能做什么？', modelId: 'chatgpt' });
+    expect(ask.project?.phase).toBe('consulting');
+    expect(ask.message.text).toMatch('将交付');
+    const intent = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '卖茶叶', modelId: 'chatgpt' });
+    expect(intent.project?.phase).toBe('collecting');
+    expect(intent.message.text).toMatch('正在整理需求');
+    for (const text of ['云南白茶', '99元', '白领']) {
+      await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text, modelId: 'chatgpt' });
     }
-    expect(last?.message.text).toMatch('信息收集完毕');
-    expect(last?.project?.profile).toMatchObject({ productName: '云南白茶', price: '99元' });
-    expect(last?.project?.plan).toMatch('执行计划');
-    const extra = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '再问', modelId: 'chatgpt' });
-    expect(extra.message.text).toMatch('初稿已生成');
+    const confirming = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '淘宝', modelId: 'chatgpt' });
+    expect(confirming.project?.phase).toBe('confirming');
+    expect(confirming.message.text).toMatch('我理解您的需求是');
+    expect(confirming.project?.profile).toBeUndefined(); // 确认前不保存
+    const corrected = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '价格改成199元', modelId: 'chatgpt' });
+    expect(corrected.message.text).toMatch('已更新:价格 → 199元');
+    const step1 = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '确认', modelId: 'chatgpt' });
+    expect(step1.project?.phase).toBe('executing');
+    expect(step1.message.text).toMatch('1/3 项目档案已生成');
+    expect(step1.project?.profile).toMatchObject({ price: '199元' });
+    const paused = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '暂停', modelId: 'chatgpt' });
+    expect(paused.project?.phase).toBe('paused');
+    const step2 = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '继续', modelId: 'chatgpt' });
+    expect(step2.message.text).toMatch('2/3 执行计划已生成');
+    const final = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '继续', modelId: 'chatgpt' });
+    expect(final.project?.phase).toBe('done');
+    expect(final.message.text).toMatch('执行完成');
   });
 
   it('keeps an uploaded avatar when one is supplied at creation', async () => {

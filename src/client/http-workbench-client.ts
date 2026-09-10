@@ -24,6 +24,7 @@ interface ServerProject {
   profile: ProductProfile | null;
   plan: string | null;
   draft: string | null;
+  phase: Project['phase'];
 }
 
 interface ServerMessage {
@@ -61,6 +62,7 @@ function toProject(row: ServerProject, avatarIndex: number, avatar?: Project['av
     profile: row.profile,
     plan: row.plan,
     draft: row.draft,
+    phase: row.phase,
   };
 }
 
@@ -175,6 +177,6 @@ export class HttpWorkbenchClient implements WorkbenchClient {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: input.text }) },
     );
     const message: Message = { id: `srv-chat-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: data.reply.text };
-    return data.done ? { message, project: toProject(data.project, 0) } : { message };
+    return { message, project: toProject(data.project, 0) };
   }
 }

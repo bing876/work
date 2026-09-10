@@ -95,20 +95,20 @@ describe('HttpWorkbenchClient.updateProjectProfile', () => {
 
 describe('HttpWorkbenchClient.sendMessage', () => {
   it('走访谈接口,未完成时只返回回复', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, reply: { text: '第2问' }, done: false, project: null }));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, reply: { text: '第2问' }, done: false, project: { ...row(1, '白茶店'), phase: 'collecting' } }));
     vi.stubGlobal('fetch', fetchMock);
     const turn = await new HttpWorkbenchClient().sendMessage({ conversationId: 'conv-srv-1', agentId: 'srv-1', text: '卖茶叶', modelId: 'chatgpt' });
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/1/chat', expect.objectContaining({ method: 'POST' }));
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ text: '卖茶叶' });
     expect(turn.message).toMatchObject({ author: 'assistant', text: '第2问' });
-    expect(turn.project).toBeUndefined();
+    expect(turn.project).toMatchObject({ id: 'srv-1', phase: 'collecting' });
   });
 
   it('引导完成时附带更新后的项目', async () => {
     const profile = { productName: '白茶', category: '茶', price: '99', specs: '', sellingPoints: '', notes: '' };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       ok: true, reply: { text: '信息收集完毕！' }, done: true,
-      project: { id: 1, name: '白茶店', created_at: '2026-09-10T09:19:39.268Z', profile, plan: '【执行计划】', draft: '【初版上架文案】' },
+      project: { id: 1, name: '白茶店', created_at: '2026-09-10T09:19:39.268Z', profile, plan: '【执行计划】', draft: '【初版上架文案】', phase: 'done' },
     }));
     vi.stubGlobal('fetch', fetchMock);
     const turn = await new HttpWorkbenchClient().sendMessage({ conversationId: 'conv-srv-1', agentId: 'srv-1', text: '淘宝', modelId: 'chatgpt' });

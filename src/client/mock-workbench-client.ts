@@ -3,7 +3,7 @@ import { defaultProjectAvatar } from '../assets/project-avatars';
 
 const initial: WorkbenchBootstrap = {
   user: { name: '用户', initials: 'U' },
-  projects: [{ id: 'project-launch', name: '春季新品发布', agentId: 'launch-agent', conversationId: 'conv-launch', status: 'executing', template: 'launch', avatar: defaultProjectAvatar(0) }],
+  projects: [{ id: 'project-launch', name: '春季新品发布', agentId: 'launch-agent', conversationId: 'conv-launch', status: 'executing', template: 'launch', avatar: defaultProjectAvatar(0), phase: 'collecting' }],
   tasks: [
     { id: 'task-launch-goal', projectId: 'project-launch', title: '梳理发布目标', detail: '已整理受众、卖点与发布时间窗口', status: 'completed' },
     { id: 'task-launch-strategy', projectId: 'project-launch', title: '建立内容与渠道策略', detail: '正在生成传播节奏与渠道建议', status: 'running' },
@@ -59,10 +59,12 @@ const initial: WorkbenchBootstrap = {
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
-// SCRIPT-MIRROR:与 server/interview.js 同步的演示副本(Mock 只演界面,不联网、不持久)。
-// 改文案规则时,两边一起改。
+// SCRIPT-MIRROR:与 server/interview.js + server/index.mjs 状态机同步的演示副本。
+// Mock 只演界面,不联网、不持久。改规则时,两边一起改。
 const MOCK_OPENING = '您好！我是您的AI产品经理，我能为你做些什么？';
 const MOCK_COMPLETED = '上架文案初稿已生成(见上方对话)。(Mock 演示数据,刷新即丢)';
+const MOCK_CONFIRM_EXAMPLE = '回复“确认”开始执行，或说哪里要改(比如“价格改成199元”)。';
+const MOCK_FIELD_NAMES = ['生意方向', '商品', '价格', '客户', '渠道'];
 const mockClip = (value: string, length: number) => value.trim().slice(0, length);
 const MOCK_INTENTS: { pattern: RegExp; intent: string; thing: string }[] = [
   { pattern: /茶/, intent: '茶叶生意', thing: '茶叶' },
@@ -71,6 +73,7 @@ const MOCK_INTENTS: { pattern: RegExp; intent: string; thing: string }[] = [
   { pattern: /数码|手机|电子|耳机|电脑/, intent: '数码生意', thing: '数码产品' },
   { pattern: /食品|零食|水果|特产/, intent: '食品生意', thing: '食品' },
 ];
+const mockDetectIntent = (text: string) => MOCK_INTENTS.find((rule) => rule.pattern.test(text)) ?? null;
 const mockStyleForPrice = (text: string) => {
   const number = Number(text.replace(/[^0-9.]/g, '').slice(0, 10));
   if (!Number.isFinite(number) || number <= 0) return '突出核心卖点';
@@ -78,21 +81,99 @@ const mockStyleForPrice = (text: string) => {
   if (number >= 100) return '兼顾品质与性价比';
   return '突出性价比';
 };
+const mockIsQuestion = (text: string) =>
+  /[?？]|吗\s*$|怎么|什么|如何|为什么|能不能|可以不|会不会|你能|你会|多少|哪个|哪些/.test(text);
+const mockIsConfirm = (text: string) =>
+  /确认|同意|没问题|可以开始|开始执行|执行吧|^ *(好的|好|行|OK|ok|开始|可以) *$/.test(text.trim());
+const mockIsContinue = (text: string) => /继续|下一步|往下|go/i.test(text);
+const mockIsPause = (text: string) => /暂停|等一下|等等|先停|休息/.test(text);
+const mockParseCorrection = (text: string): { index: number; value: string } | null => {
+  const rules: { pattern: RegExp; index: number }[] = [
+    { pattern: /价格|价钱|价位|定价/, index: 2 },
+    { pattern: /商品|产品|茶叶|东西|卖什么/, index: 1 },
+    { pattern: /客户|人群|对象|卖给谁/, index: 3 },
+    { pattern: /渠道|平台|哪里卖|在哪卖/, index: 4 },
+    { pattern: /生意|项目|类目|做什么/, index: 0 },
+  ];
+  const mark = text.match(/(改成|改为|改一下|改|换成|应该是|是|为|:|：)/);
+  if (!mark || mark.index === undefined) return null;
+  const value = mockClip(text.slice(mark.index + mark[0].length), 30).replace(/[。！？!?,，\s]+$/g, '');
+  if (!value) return null;
+  const rule = rules.find((item) => item.pattern.test(text.slice(0, mark.index)));
+  return rule ? { index: rule.index, value } : null;
+};
+const mockCapabilityAnswer = (intentName?: string) =>
+  [
+    `我能为您做什么(${intentName ?? '各品类开店前的资料准备'}):`,
+    '1)陪您聊清楚要做什么(需求引导)', '2)整理成项目档案', '3)生成执行计划和上架文案初稿',
+    '我目前还不能:', '1)不能代替您开店、上架(需要您手动操作)', '2)不能做图、拍视频', '3)不能保证销量，初稿需要您把关',
+    '将交付:①项目档案 ②执行计划 ③上架文案初稿。',
+    '如果您准备好了，直接告诉我您想做什么生意(比如“我想在淘宝卖茶叶”)，我就开始帮您整理需求。',
+  ].join('\n');
 const mockReplyForStep = (step: number, answers: string[]): string => {
   if (step === 1) {
-    const found = MOCK_INTENTS.find((rule) => rule.pattern.test(answers[0]));
-    if (found) return `明白了，您要做${found.intent}。我现在帮您准备上架资料，请告诉我具体是什么${found.thing}？`;
-    return `明白了，我来帮您推进「${mockClip(answers[0], 20)}」。我现在帮您准备上架资料，请告诉我具体的商品是什么？`;
+    const found = mockDetectIntent(answers[0]);
+    const direction = found ? `明白了，您要做${found.intent}。` : `明白了，我来帮您推进「${mockClip(answers[0], 20)}」。`;
+    const question = found
+      ? `我现在帮您准备上架资料，请告诉我具体是什么${found.thing}？`
+      : '我现在帮您准备上架资料，请告诉我具体的商品是什么？';
+    return `${direction}\n——— 正在整理需求 ———\n${question}`;
   }
-  if (step === 2) return `好的，${mockClip(answers[1], 24) || '这个商品'}。我正在为您生成商品标题和卖点，请告诉我价格定位，这样我能调整文案风格。`;
+  if (step === 2) return `好的，${mockClip(answers[1], 24) || '这个商品'}。我正在为您生成商品标题和卖点，请告诉我价格定位(就是您打算卖多少钱)，这样我能调整文案风格。`;
   if (step === 3) return `收到，${mockClip(answers[2], 20) || '这个价位'}。我正在按这个价位打磨文案风格（${mockStyleForPrice(answers[2])}），请告诉我目标客户是谁，这样卖点能更对口味。`;
   if (step === 4) return `好的，面向${mockClip(answers[3], 20) || '这类客户'}。我正在把卖点往这类人群的偏好上靠，请告诉我主要在哪些渠道销售，我好按平台调文案长度和格式。`;
   return MOCK_COMPLETED;
+};
+const mockApplyOverrides = (answers: string[], overrides: Record<number, string>) => {
+  const effective = answers.slice();
+  for (const [key, value] of Object.entries(overrides)) {
+    const index = Number(key);
+    if (Number.isInteger(index) && index >= 0 && index < 5 && value.trim()) effective[index] = value;
+  }
+  return effective;
+};
+const mockCompileProfile = (answers: string[], overrides: Record<number, string>) => {
+  const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = mockApplyOverrides(answers, overrides);
+  return {
+    productName: mockClip(a2, 30), category: mockClip(a1, 20), price: mockClip(a3, 30), specs: '', sellingPoints: '',
+    notes: mockClip(`需求整理:生意「${a1}」;商品「${a2}」;价格「${a3}」;客户「${a4}」;渠道「${a5}」`, 500),
+  };
+};
+const mockCompilePlan = (answers: string[], overrides: Record<number, string>) => {
+  const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = mockApplyOverrides(answers, overrides);
+  return ['【执行计划】(Mock 演示版)', `一、定位:围绕「${mockClip(a1, 30)}」,首批聚焦「${mockClip(a4, 30)}」客户。`, `二、商品:上架「${mockClip(a2, 30)}」,价格带「${mockClip(a3, 30)}」。`, `三、渠道:优先铺设「${mockClip(a5, 40)}」。`, '四、下一步:打磨上架文案初稿。'].join('\n');
+};
+const mockConfirmingMessage = (answers: string[], overrides: Record<number, string>) => {
+  const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = mockApplyOverrides(answers, overrides);
+  return [
+    `我理解您的需求是:在「${mockClip(a5, 24) || '待定渠道'}」卖「${mockClip(a2, 24) || '待定商品'}」(${mockClip(a1, 20) || '待定方向'})，目标客户「${mockClip(a4, 20) || '待定'}」，价格「${mockClip(a3, 20) || '待定'}」。`,
+    '我准备执行以下任务:1)生成项目档案 2)生成执行计划 3)生成上架文案初稿。',
+    '将交付:①项目档案 ②执行计划 ③上架文案初稿(初稿需您把关；我不能代您开店上架)。',
+    `请确认开始执行。${MOCK_CONFIRM_EXAMPLE}`,
+  ].join('\n');
+};
+const mockExecProgressMessage = (step: number) => {
+  const box = (n: number, label: string) => (n <= step ? `✅ ${n}/3 ${label}已生成` : `⏳ ${n}/3 ${label}待生成`);
+  const lines = ['开始执行…', box(1, '项目档案'), box(2, '执行计划'), box(3, '上架文案初稿')];
+  if (step < 3) lines.push('回复“继续”执行下一步，或说“暂停”。');
+  return lines.join('\n');
+};
+const mockCollectAnswers = (history: Message[]) => {
+  let marker = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].author === 'assistant' && history[i].text.includes('正在整理需求')) { marker = i; break; }
+  }
+  if (marker === -1) return [];
+  const before = history.slice(0, marker).filter((m) => m.author === 'user');
+  const after = history.slice(marker + 1).filter((m) => m.author === 'user');
+  const intent = before.length ? [before[before.length - 1]] : [];
+  return [...intent, ...after].map((m) => m.text);
 };
 
 export class MockWorkbenchClient implements WorkbenchClient {
   private state = clone(initial);
   private projectSequence = 0;
+  private overrides: Record<string, Record<number, string>> = {};
 
   async bootstrap(): Promise<WorkbenchBootstrap> { return clone(this.state); }
   async sendMessage(input: SendMessageInput): Promise<AgentTurn> {
@@ -100,48 +181,83 @@ export class MockWorkbenchClient implements WorkbenchClient {
     const incoming: Message = { id: `mock-user-${Date.now()}`, author: 'user', agentId: input.agentId, text: input.text };
     const history = [...(this.state.messages[input.conversationId] ?? []), incoming];
     this.state.messages[input.conversationId] = history;
+    const say = (text: string, next?: Project): AgentTurn => {
+      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text };
+      this.state.messages[input.conversationId] = [...history, reply];
+      if (next) this.state.projects = this.state.projects.map((item) => item.id === next.id ? next : item);
+      return clone({ message: reply, project: next });
+    };
     if (!project) {
-      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: `这是由 Mock Client 返回的确定性界面响应：已收到“${input.text}”。` };
-      this.state.messages[input.conversationId] = [...history, reply];
-      return clone({ message: reply });
+      return say(`这是由 Mock Client 返回的确定性界面响应：已收到“${input.text}”。`);
     }
-    const answers = history.filter((item) => item.author === 'user').map((item) => item.text);
-    if (answers.length <= 4) {
-      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: mockReplyForStep(answers.length, answers) };
-      this.state.messages[input.conversationId] = [...history, reply];
-      return clone({ message: reply });
+    const answers = () => mockCollectAnswers(history);
+    const overrides = () => this.overrides[project.id] ?? {};
+    if (project.phase === 'done') return say(MOCK_COMPLETED, project);
+    if (project.phase === 'consulting') {
+      if (mockIsQuestion(input.text)) return say(mockCapabilityAnswer(mockDetectIntent(input.text)?.intent), project);
+      return say(mockReplyForStep(1, [input.text]), { ...project, phase: 'collecting' });
     }
-    if (answers.length === 5) {
-      const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = answers;
-      const profile = {
-        productName: mockClip(a2, 30),
-        category: mockClip(a1, 20),
-        price: mockClip(a3, 30),
-        specs: '',
-        sellingPoints: '',
-        notes: mockClip(`需求整理:生意「${a1}」;商品「${a2}」;价格「${a3}」;客户「${a4}」;渠道「${a5}」`, 500),
+    if (project.phase === 'collecting') {
+      const list = answers();
+      if (list.length <= 4) return say(mockReplyForStep(list.length, list), project);
+      return say(mockConfirmingMessage(list, overrides()), { ...project, phase: 'confirming' });
+    }
+    if (project.phase === 'confirming') {
+      const correction = mockParseCorrection(input.text);
+      if (correction) {
+        this.overrides[project.id] = { ...overrides(), [correction.index]: correction.value };
+        const list = answers();
+        return say(`已更新:${MOCK_FIELD_NAMES[correction.index]} → ${correction.value}。请确认开始执行。${MOCK_CONFIRM_EXAMPLE}`, project);
+      }
+      if (mockIsConfirm(input.text)) {
+        return say(mockExecProgressMessage(1), { ...project, phase: 'executing', profile: mockCompileProfile(answers(), overrides()) });
+      }
+      return say(`请先确认方案。${MOCK_CONFIRM_EXAMPLE}`, project);
+    }
+    const runNextStep = (): { text: string; next: Project } => {
+      const current = this.state.projects.find((item) => item.id === project.id) ?? project;
+      if (!current.plan) {
+        return { text: mockExecProgressMessage(2), next: { ...current, plan: mockCompilePlan(answers(), overrides()) } };
+      }
+      const profile = mockCompileProfile(answers(), overrides());
+      const draft = '【初版上架文案】(Mock 演示版)';
+      return {
+        text: ['信息收集完毕，执行完成！', '', draft, '', `商品:${profile.productName || '—'}｜类目:${profile.category || '—'}｜价格:${profile.price || '—'}`, '档案和计划已同步到「项目档案」卡。'].join('\n'),
+        next: { ...current, phase: 'done', profile, draft },
       };
-      const updated: Project = {
-        ...project,
-        profile,
-        plan: ['【执行计划】(Mock 演示版)', `一、定位:围绕「${mockClip(a1, 30)}」,首批聚焦「${mockClip(a4, 30)}」客户。`, `二、商品:上架「${mockClip(a2, 30)}」,价格带「${mockClip(a3, 30)}」。`, `三、渠道:优先铺设「${mockClip(a5, 40)}」。`, '四、下一步:打磨上架文案初稿。'].join('\n'),
-        draft: '【初版上架文案】(Mock 演示版)',
-      };
-      this.state.projects = this.state.projects.map((item) => item.id === project.id ? updated : item);
-      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: `信息收集完毕，我开始为您生成上架文案...\n\n商品:${profile.productName || '—'}｜类目:${profile.category || '—'}｜价格:${profile.price || '—'}\n档案和计划已同步到「项目档案」卡。` };
-      this.state.messages[input.conversationId] = [...history, reply];
-      return clone({ message: reply, project: updated });
+    };
+    const applyMidCorrection = (correction: { index: number; value: string }): Project => {
+      this.overrides[project.id] = { ...overrides(), [correction.index]: correction.value };
+      const current = this.state.projects.find((item) => item.id === project.id) ?? project;
+      return { ...current, profile: mockCompileProfile(answers(), this.overrides[project.id]) };
+    };
+    if (project.phase === 'executing') {
+      const correction = mockParseCorrection(input.text);
+      if (correction) return say(`已把${MOCK_FIELD_NAMES[correction.index]}改成“${correction.value}”，档案已同步。说“继续”接着执行。`, applyMidCorrection(correction));
+      if (mockIsPause(input.text)) return say('已暂停，随时说“继续”接着执行，或告诉我调整。', { ...project, phase: 'paused' });
+      if (mockIsContinue(input.text)) {
+        const step = runNextStep();
+        return say(step.text, step.next);
+      }
+      return say('执行中，说“继续”下一步，“暂停”休息，或直接说调整。', project);
     }
-    const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: MOCK_COMPLETED };
-    this.state.messages[input.conversationId] = [...history, reply];
-    return clone({ message: reply, project });
+    if (project.phase === 'paused') {
+      const correction = mockParseCorrection(input.text);
+      if (correction) return say(`已把${MOCK_FIELD_NAMES[correction.index]}改成“${correction.value}”，档案已同步。仍处于暂停中，说“继续”接着执行。`, applyMidCorrection(correction));
+      if (mockIsContinue(input.text)) {
+        const step = runNextStep();
+        return say(step.text, { ...step.next, phase: step.next.phase === 'done' ? 'done' : 'executing' });
+      }
+      return say('已暂停中。说“继续”接着执行，或告诉我调整。', project);
+    }
+    return say('当前状态异常，已为您回到自由咨询。', { ...project, phase: 'consulting' });
   }
   async createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
     const name = this.resolveProjectName(input);
     const id = `mock-project-${++this.projectSequence}`;
     const launch = /发布|新品|品牌|launch/i.test(`${name}\n${input.initialMessage}`);
     const avatar = input.avatar ?? defaultProjectAvatar(this.state.projects.length);
-    const project: Project = { id, name, agentId: id, conversationId: `conv-${id}`, status: 'executing', template: launch ? 'launch' : 'general', avatar };
+    const project: Project = { id, name, agentId: id, conversationId: `conv-${id}`, status: 'executing', template: launch ? 'launch' : 'general', avatar, phase: input.initialMessage ? 'collecting' : 'consulting' };
     const agent: AgentSummary = { id, name, role: '项目 Agent', initials: name.slice(0, 1) || '项', tone: 'project-avatar', status: 'working', preview: launch ? '正在生成内容与渠道策略' : '正在建立项目执行计划' };
     const conversation = { id: project.conversationId, agentId: id, title: name, preview: agent.preview, updatedAt: '刚刚' };
     const initialMessage: Message | undefined = input.initialMessage

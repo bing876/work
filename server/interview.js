@@ -1,7 +1,8 @@
-// 引导式访谈引擎:AI产品经理边问边做,每句回复 = 复述理解 + 汇报进度 + 紧扣工作的问题。
-// 答满5题后自动生成档案、执行计划和文案初稿。
-// 任务5接真模型时,关键词理解和模板回复会被 AI 替换,接口保持不变,前端不用改。
-// 注意:src/client/mock-workbench-client.ts 里有一份演示用的同步副本(SCRIPT-MIRROR),改文案规则时两边一起改。
+// 引导式访谈引擎(含阶段状态机)。
+// 阶段:consulting(自由咨询) -> collecting(需求收集) -> confirming(确认执行)
+//      -> executing(任务执行,分3步) <-> paused(已暂停) -> done(完成)
+// 任务5接真模型时,关键词理解和模板回复会被 AI 替换,阶段流转和接口保持不变。
+// 注意:src/client/mock-workbench-client.ts 里有一份演示用的同步副本(SCRIPT-MIRROR),改规则时两边一起改。
 
 export const TOTAL_ANSWERS = 5;
 
@@ -11,9 +12,12 @@ export const OPENING = '您好！我是您的AI产品经理，我能为你做些
 export const COMPLETED_NOTE =
   '上架文案初稿已生成(见上方对话)。完整对话和修改能力在任务5接入，届时您可以继续追问和调整。';
 
-const clip = (value, length) => String(value ?? '').trim().slice(0, length);
+export const CONFIRM_EXAMPLE = '回复“确认”开始执行，或说哪里要改(比如“价格改成199元”)。';
 
-// 关键词理解(临时):从第1句话判断生意类型,任务5换成 AI 理解
+const clip = (value, length) => String(value ?? '').trim().slice(0, length);
+const cleanValue = (value) => clip(value, 30).replace(/[。！？!?,，\s]+$/g, '');
+
+// ---------- 意图与价格理解(关键词版,任务5换 AI) ----------
 const INTENT_RULES = [
   [/茶/, { intent: '茶叶生意', thing: '茶叶' }],
   [/服装|衣服|女装|男装|童装|鞋|包/, { intent: '服装生意', thing: '服装' }],
@@ -26,7 +30,6 @@ export const detectIntent = (text) => {
   return hit ? hit[1] : null;
 };
 
-// 价格理解(临时):从价格回答里读数字,决定文案风格
 export const styleForPrice = (text) => {
   const number = Number(String(text).replace(/[^0-9.]/g, '').slice(0, 10));
   if (!Number.isFinite(number) || number <= 0) return '突出核心卖点';
@@ -35,15 +38,91 @@ export const styleForPrice = (text) => {
   return '突出性价比';
 };
 
-// step = 用户已回答条数(1..4),answers = 全部用户回答(至少 step 条)
+// ---------- 能力说明模板(每个行业一份 + 通用一份) ----------
+const CAPABILITY = {
+  通用: {
+    line: '各品类开店前的资料准备',
+    can: ['陪您聊清楚要做什么(需求引导)', '整理成项目档案(商品/价格/客户/渠道)', '生成执行计划和上架文案初稿'],
+    cannot: ['不能代替您开店、上架(需要您手动操作)', '不能做图、拍视频', '不能保证销量，初稿需要您把关'],
+  },
+  茶叶生意: {
+    line: '茶叶懂行话(清香/浓香、产区、工艺)',
+    can: ['陪您聊清楚要做什么(需求引导)', '整理茶叶档案(品类/产区/价格/客户)', '生成执行计划和上架文案初稿'],
+    cannot: ['不能代替您开店、上架(需要您手动操作)', '不能做图、拍视频', '不能保证销量，初稿需要您把关'],
+  },
+  服装生意: {
+    line: '服装懂尺码、面料、季节款',
+    can: ['陪您聊清楚要做什么(需求引导)', '整理服装档案(品类/尺码/价格/人群)', '生成执行计划和上架文案初稿'],
+    cannot: ['不能代替您开店、上架(需要您手动操作)', '不能做图、拍视频', '不能保证销量，初稿需要您把关'],
+  },
+  美妆生意: {
+    line: '美妆懂成分、肤质、功效话术',
+    can: ['陪您聊清楚要做什么(需求引导)', '整理美妆档案(品类/功效/价格/人群)', '生成执行计划和上架文案初稿'],
+    cannot: ['不能代替您开店、上架(需要您手动操作)', '不能做图、拍视频', '不能保证销量，初稿需要您把关'],
+  },
+  数码生意: {
+    line: '数码懂参数、对比、场景卖点',
+    can: ['陪您聊清楚要做什么(需求引导)', '整理数码档案(品类/参数/价格/人群)', '生成执行计划和上架文案初稿'],
+    cannot: ['不能代替您开店、上架(需要您手动操作)', '不能做图、拍视频', '不能保证销量，初稿需要您把关'],
+  },
+  食品生意: {
+    line: '食品懂口味、保质期、规格话术',
+    can: ['陪您聊清楚要做什么(需求引导)', '整理食品档案(品类/口味/价格/人群)', '生成执行计划和上架文案初稿'],
+    cannot: ['不能代替您开店、上架(需要您手动操作)', '不能做图、拍视频', '不能保证销量，初稿需要您把关'],
+  },
+};
+
+export function capabilityAnswer(intentName) {
+  const cap = CAPABILITY[intentName] ?? CAPABILITY.通用;
+  return [
+    `我能为您做什么(${cap.line}):`,
+    ...cap.can.map((item, i) => `${i + 1})${item}`),
+    '我目前还不能:',
+    ...cap.cannot.map((item, i) => `${i + 1})${item}`),
+    '将交付:①项目档案 ②执行计划 ③上架文案初稿。',
+    '如果您准备好了，直接告诉我您想做什么生意(比如“我想在淘宝卖茶叶”)，我就开始帮您整理需求。',
+  ].join('\n');
+}
+
+// ---------- 用户意图识别(关键词版) ----------
+export const isQuestion = (text) =>
+  /[?？]|吗\s*$|怎么|什么|如何|为什么|能不能|可以不|会不会|你能|你会|多少|哪个|哪些/.test(text);
+export const isConfirm = (text) =>
+  /确认|同意|没问题|可以开始|开始执行|执行吧|^ *(好的|好|行|OK|ok|开始|可以) *$/.test(text.trim());
+export const isContinue = (text) => /继续|下一步|往下|go/i.test(text);
+export const isPause = (text) => /暂停|等一下|等等|先停|休息/.test(text);
+
+// 纠错解析:返回 {index(0..4), value} 或 null。字段顺序固定 [生意, 商品, 价格, 客户, 渠道]
+const CORRECTION_RULES = [
+  [/价格|价钱|价位|定价/, 2],
+  [/商品|产品|茶叶|东西|卖什么/, 1],
+  [/客户|人群|对象|卖给谁/, 3],
+  [/渠道|平台|哪里卖|在哪卖/, 4],
+  [/生意|项目|类目|做什么/, 0],
+];
+export function parseCorrection(text) {
+  const mark = text.match(/(改成|改为|改一下|改|换成|应该是|是|为|:|：)/);
+  if (!mark || mark.index === undefined) return null;
+  const before = text.slice(0, mark.index);
+  const value = cleanValue(text.slice(mark.index + mark[0].length));
+  if (!value) return null;
+  const rule = CORRECTION_RULES.find(([pattern]) => pattern.test(before));
+  if (!rule) return null;
+  return { index: rule[1], value };
+}
+
+// ---------- 收集阶段回复:复述理解 + 汇报进度 + 紧扣工作的问题 ----------
 export function replyForStep(step, answers) {
   if (step === 1) {
     const found = detectIntent(answers[0]);
-    if (found) return `明白了，您要做${found.intent}。我现在帮您准备上架资料，请告诉我具体是什么${found.thing}？`;
-    return `明白了，我来帮您推进「${clip(answers[0], 20)}」。我现在帮您准备上架资料，请告诉我具体的商品是什么？`;
+    const direction = found ? `明白了，您要做${found.intent}。` : `明白了，我来帮您推进「${clip(answers[0], 20)}」。`;
+    const question = found
+      ? `我现在帮您准备上架资料，请告诉我具体是什么${found.thing}？`
+      : '我现在帮您准备上架资料，请告诉我具体的商品是什么？';
+    return `${direction}\n——— 正在整理需求 ———\n${question}`;
   }
   if (step === 2) {
-    return `好的，${clip(answers[1], 24) || '这个商品'}。我正在为您生成商品标题和卖点，请告诉我价格定位，这样我能调整文案风格。`;
+    return `好的，${clip(answers[1], 24) || '这个商品'}。我正在为您生成商品标题和卖点，请告诉我价格定位(就是您打算卖多少钱)，这样我能调整文案风格。`;
   }
   if (step === 3) {
     return `收到，${clip(answers[2], 20) || '这个价位'}。我正在按这个价位打磨文案风格（${styleForPrice(answers[2])}），请告诉我目标客户是谁，这样卖点能更对口味。`;
@@ -54,9 +133,20 @@ export function replyForStep(step, answers) {
   return COMPLETED_NOTE;
 }
 
-// 机械整理(临时):answers 顺序固定为 [生意, 商品, 价格, 客户, 渠道]
-export function compileProfile(answers) {
-  const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = answers;
+// ---------- 整理(answers 顺序固定 [生意, 商品, 价格, 客户, 渠道],overrides 按下标覆盖) ----------
+export const applyOverrides = (answers, overrides) => {
+  const effective = answers.slice();
+  for (const [key, value] of Object.entries(overrides ?? {})) {
+    const index = Number(key);
+    if (Number.isInteger(index) && index >= 0 && index < TOTAL_ANSWERS && typeof value === 'string' && value.trim()) {
+      effective[index] = value;
+    }
+  }
+  return effective;
+};
+
+export function compileProfile(answers, overrides) {
+  const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = applyOverrides(answers, overrides);
   return {
     productName: clip(a2, 30),
     category: clip(a1, 20),
@@ -67,8 +157,8 @@ export function compileProfile(answers) {
   };
 }
 
-export function compilePlan(answers) {
-  const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = answers;
+export function compilePlan(answers, overrides) {
+  const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = applyOverrides(answers, overrides);
   return [
     '【执行计划】(引导初版,任务5将升级为 AI 定制版)',
     `一、定位:围绕「${clip(a1, 30)}」,首批聚焦「${clip(a4, 30)}」客户。`,
@@ -78,9 +168,8 @@ export function compilePlan(answers) {
   ].join('\n');
 }
 
-// 文案初稿(临时模板):任务4负责展示和修改,任务5换成 AI 撰写
-export function compileDraft(answers) {
-  const [, a2 = '', a3 = '', a4 = '', a5 = ''] = answers;
+export function compileDraft(answers, overrides) {
+  const [, a2 = '', a3 = '', a4 = '', a5 = ''] = applyOverrides(answers, overrides);
   const product = clip(a2, 24) || '本商品';
   const price = clip(a3, 20);
   const customer = clip(a4, 20) || '目标客户';
@@ -93,9 +182,38 @@ export function compileDraft(answers) {
   ].join('\n');
 }
 
+export const FIELD_NAMES = ['生意方向', '商品', '价格', '客户', '渠道'];
+
+// 确认阶段:需求复述 + 任务列表 + 交付预览 + 请确认
+export function confirmingMessage(answers, overrides) {
+  const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = applyOverrides(answers, overrides);
+  return [
+    `我理解您的需求是:在「${clip(a5, 24) || '待定渠道'}」卖「${clip(a2, 24) || '待定商品'}」(${clip(a1, 20) || '待定方向'})，目标客户「${clip(a4, 20) || '待定'}」，价格「${clip(a3, 20) || '待定'}」。`,
+    '我准备执行以下任务:1)生成项目档案 2)生成执行计划 3)生成上架文案初稿。',
+    '将交付:①项目档案 ②执行计划 ③上架文案初稿(初稿需您把关；我不能代您开店上架)。',
+    `请确认开始执行。${CONFIRM_EXAMPLE}`,
+  ].join('\n');
+}
+
+export function correctionMessage(fieldIndex, value, answers, overrides) {
+  const effective = applyOverrides(answers, overrides);
+  return [
+    `已更新:${FIELD_NAMES[fieldIndex]} → ${value}。`,
+    `当前需求:生意「${clip(effective[0], 20)}」；商品「${clip(effective[1], 20)}」；价格「${clip(effective[2], 20)}」；客户「${clip(effective[3], 20)}」；渠道「${clip(effective[4], 20)}」。`,
+    `请确认开始执行。${CONFIRM_EXAMPLE}`,
+  ].join('\n');
+}
+
+export function execProgressMessage(step) {
+  const box = (n, label) => (n <= step ? `✅ ${n}/3 ${label}已生成` : `⏳ ${n}/3 ${label}待生成`);
+  const lines = ['开始执行…', box(1, '项目档案'), box(2, '执行计划'), box(3, '上架文案初稿')];
+  if (step < 3) lines.push('回复“继续”执行下一步，或说“暂停”。');
+  return lines.join('\n');
+}
+
 export function finalMessage(profile, draft) {
   return [
-    '信息收集完毕，我开始为您生成上架文案...',
+    '信息收集完毕，执行完成！',
     '',
     draft,
     '',

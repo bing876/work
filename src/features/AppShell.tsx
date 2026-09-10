@@ -219,7 +219,7 @@ function ContactRow({ conversation, agent, avatar, selected, onClick }: { conver
 function Conversation({ messages, agent, project, tasks, artifacts }: { messages: Message[]; agent?: AgentSummary; project?: Project; tasks: Task[]; artifacts: Artifact[] }) {
   if (!messages.length && !project) return <section className="chat-area empty-conversation" aria-label="空白对话" />;
   return <section className="chat-area" aria-label="对话">
-    {project && <ProjectDossier key={project.id} project={project} userAnswerCount={messages.filter((item) => item.author === 'user').length} />}
+    {project && <ProjectDossier key={project.id} project={project} messages={messages} />}
     {project && <ProjectExperience project={project} tasks={tasks} artifacts={artifacts} />}
     {messages.map((message) => <MessageView key={message.id} message={message} agent={agent} />)}
   </section>;
@@ -263,7 +263,7 @@ function Composer({ state, dispatch, client, conversation, selectedModel }: { st
   return <footer className="composer" aria-label="消息输入">
     <div className="inputbar">
       <button className="inputbar-btn attach" type="button" aria-label="添加附件" onClick={() => update({ toolOpen: !state.toolOpen, modelOpen: false })}><span className="primitive-plus" aria-hidden="true" /></button>
-      <textarea aria-label="输入消息" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} placeholder="需要我做些什么" rows={1} />
+      <textarea aria-label="输入消息" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} placeholder="比如：我想在淘宝卖茶叶" rows={1} />
       <button className="inputbar-btn voice" type="button" aria-label="语音输入"><img src={voiceIcon} alt="" /></button>
       <button className="inputbar-btn send" type="button" aria-label="发送消息" onClick={() => void send()}><img src={sendIcon} alt="" /></button>
       {state.toolOpen && <ToolMenu />}

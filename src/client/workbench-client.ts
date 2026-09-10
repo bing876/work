@@ -7,8 +7,9 @@ export type ArtifactStatus = 'pending' | 'ready';
 export type ProjectAvatar = { source: 'library'; id: string } | { source: 'upload'; name: string; mimeType: string; size: number; dataUrl: string };
 export interface AgentSummary { id: string; name: string; role: string; initials: string; tone: string; status: AgentStatus; preview: string; }
 export interface ConversationSummary { id: string; agentId: string; title: string; preview: string; updatedAt: string; unread?: number; }
+export type ProjectPhase = 'consulting' | 'collecting' | 'confirming' | 'executing' | 'paused' | 'done';
 export interface ProductProfile { productName: string; category: string; price: string; specs: string; sellingPoints: string; notes: string; }
-export interface Project { id: string; name: string; agentId: string; conversationId: string; status: ProjectStatus; template: 'launch' | 'general'; avatar: ProjectAvatar; profile?: ProductProfile | null; plan?: string | null; draft?: string | null; }
+export interface Project { id: string; name: string; agentId: string; conversationId: string; status: ProjectStatus; template: 'launch' | 'general'; avatar: ProjectAvatar; phase: ProjectPhase; profile?: ProductProfile | null; plan?: string | null; draft?: string | null; }
 export interface Task { id: string; projectId: string; title: string; detail: string; status: TaskStatus; }
 export interface Artifact { id: string; projectId: string; name: string; kind: string; summary: string; status: ArtifactStatus; }
 export interface MessageBlock { type: 'text' | 'code' | 'artifact' | 'error'; title?: string; body: string; }

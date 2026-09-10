@@ -24,6 +24,15 @@ node server/index.mjs
 
 访谈剧本见 `server/interview.js`(任务5换成真 AI,接口不变)。
 
+## 对话阶段
+
+`consulting`(自由咨询,只答不做) → `collecting`(需求收集,5问)
+→ `confirming`(展示方案,必须明确确认) → `executing`(分3步执行)
+↔ `paused`(暂停) → `done`(完成)。
+
+- 确认关键词:确认/好的/开始/可以…；纠错格式:“价格改成199元”；暂停/继续随时可用。
+- 阶段存 `projects.phase`,纠错覆盖存 `overrides_json`,刷新/重启不丢。
+
 ## 测试
 
 ```bash
