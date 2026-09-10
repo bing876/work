@@ -22,6 +22,14 @@ interface ServerProject {
   name: string;
   created_at: string;
   profile: ProductProfile | null;
+  plan: string | null;
+}
+
+interface ServerMessage {
+  id: number;
+  author: 'user' | 'assistant';
+  text: string;
+  created_at: string;
 }
 
 const MODELS: ModelOption[] = [
@@ -50,8 +58,16 @@ function toProject(row: ServerProject, avatarIndex: number, avatar?: Project['av
     template: isLaunch(row.name, '') ? 'launch' : 'general',
     avatar: avatar ?? defaultProjectAvatar(avatarIndex),
     profile: row.profile,
+    plan: row.plan,
   };
 }
+
+const toMessage = (row: ServerMessage, agentId: string): Message => ({
+  id: `srv-msg-${row.id}`,
+  author: row.author,
+  agentId,
+  text: row.text,
+});
 
 function toAgent(project: Project): AgentSummary {
   return {
@@ -61,7 +77,7 @@ function toAgent(project: Project): AgentSummary {
     initials: project.name.slice(0, 1) || '项',
     tone: 'project-avatar',
     status: 'working',
-    preview: '真实后端项目,聊天记录任务5接入持久化',
+    preview: '项目顾问访谈中',
   };
 }
 
@@ -102,7 +118,12 @@ export class HttpWorkbenchClient implements WorkbenchClient {
     const agents = projects.map(toAgent);
     const conversations = data.projects.map((row, index) => toConversation(row, projects[index]));
     const messages: Record<string, Message[]> = {};
-    for (const conversation of conversations) messages[conversation.id] = [];
+    await Promise.all(
+      data.projects.map(async (row, index) => {
+        const box = await this.request<{ messages: ServerMessage[] }>(`/api/projects/${row.id}/messages`);
+        messages[conversations[index].id] = box.messages.map((item) => toMessage(item, projects[index].agentId));
+      }),
+    );
     return {
       user: { name: '用户', initials: 'U' },
       projects,
@@ -118,32 +139,17 @@ export class HttpWorkbenchClient implements WorkbenchClient {
 
   async createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
     const name = input.name.trim() || input.workingFolder?.displayName || new Date().toISOString().slice(0, 10);
-    const data = await this.request<{ project: ServerProject }>('/api/projects', {
+    const data = await this.request<{ project: ServerProject; messages: ServerMessage[] }>('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, initialMessage: input.initialMessage.trim() || undefined }),
     });
     const project = toProject(data.project, 0, input.avatar);
     const agent = toAgent(project);
     const conversation = toConversation(data.project, project);
-    const initialMessage: Message | undefined = input.initialMessage
-      ? { id: `message-${project.id}`, author: 'user', agentId: agent.id, text: input.initialMessage }
-      : undefined;
-    const agentMessage: Message = {
-      id: `message-${project.id}-agent`,
-      author: 'assistant',
-      agentId: agent.id,
-      text: '项目已保存到真实后端。商品资料表单(任务3)和 AI 对话(任务5)接入后,这里会变成真正的项目工作流。',
-    };
-    return {
-      project,
-      agent,
-      conversation,
-      messages: initialMessage ? [initialMessage, agentMessage] : [agentMessage],
-      tasks: [],
-      artifacts: [],
-      initialMessage,
-    };
+    const messages = data.messages.map((item) => toMessage(item, agent.id));
+    const initialMessage = messages.find((item) => item.author === 'user');
+    return { project, agent, conversation, messages, tasks: [], artifacts: [], initialMessage };
   }
 
   async updateProjectProfile(input: UpdateProjectProfileInput): Promise<Project> {
@@ -154,19 +160,19 @@ export class HttpWorkbenchClient implements WorkbenchClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile: input.profile }),
     });
-    // 注意:后端不存头像,调用方需把当前头像合并回来(见 ProductProfileCard)
+    // 注意:后端不存头像,App reducer 合并时会保留当前头像
     return toProject(data.project, 0);
   }
 
-  // 任务2范围:后端还没有对话/AI 接口,先本地确定性回复,保证界面不断档。
-  // 任务5会把这个方法换成真正的后端 AI 调用。
+  // 访谈对话走后端剧本引擎(任务5会换成真 AI,接口不变)
   async sendMessage(input: SendMessageInput): Promise<AgentTurn> {
-    const reply: Message = {
-      id: `local-${Date.now()}`,
-      author: 'assistant',
-      agentId: input.agentId,
-      text: `已收到“${input.text}”。当前为本地过渡回复:后端 AI 对话在任务5接入,聊天记录届时才会持久保存。`,
-    };
-    return { message: reply };
+    const match = input.conversationId.match(/^conv-srv-(\d+)$/);
+    if (!match) throw new Error('该会话不是后端会话,不支持在线对话');
+    const data = await this.request<{ reply: { text: string }; done: boolean; project: ServerProject }>(
+      `/api/projects/${match[1]}/chat`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: input.text }) },
+    );
+    const message: Message = { id: `srv-chat-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: data.reply.text };
+    return data.done ? { message, project: toProject(data.project, 0) } : { message };
   }
 }

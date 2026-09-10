@@ -10,6 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { COMPLETED_NOTE, OPENING, TOTAL_ANSWERS, compilePlan, compileProfile, finalMessage, replyFor } from './interview.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 // 测试可用 DB_FILE 指向临时库,避免污染真实数据
@@ -31,6 +32,20 @@ const hasProfileColumn = db
   .all()
   .some((column) => column.name === 'profile_json');
 if (!hasProfileColumn) db.exec('ALTER TABLE projects ADD COLUMN profile_json TEXT');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    author TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+const hasPlanColumn = db
+  .prepare('PRAGMA table_info(projects)')
+  .all()
+  .some((column) => column.name === 'plan_text');
+if (!hasPlanColumn) db.exec('ALTER TABLE projects ADD COLUMN plan_text TEXT');
 
 const PROFILE_KEYS = ['productName', 'category', 'price', 'specs', 'sellingPoints', 'notes'];
 // 只收白名单里的6个字段,必须是字符串、每个最多2000字,多余的一律丢掉
@@ -50,7 +65,22 @@ const toProjectJson = (row) => ({
   name: row.name,
   created_at: row.created_at,
   profile: row.profile_json ? JSON.parse(row.profile_json) : null,
+  plan: row.plan_text ?? null,
 });
+const toMessageJson = (row) => ({ id: row.id, author: row.author, text: row.text, created_at: row.created_at });
+const insertMessage = (projectId, author, text) =>
+  db.prepare('INSERT INTO messages (project_id, author, text, created_at) VALUES (?, ?, ?, ?)').run(projectId, author, text, now());
+const readMessages = (projectId) =>
+  db.prepare('SELECT id, author, text, created_at FROM messages WHERE project_id = ? ORDER BY id').all(projectId).map(toMessageJson);
+// 老项目没有开场白,首次读取时自动补一条,访谈能从中断处继续
+const readMessagesWithOpening = (projectId) => {
+  let messages = readMessages(projectId);
+  if (messages.length === 0) {
+    insertMessage(projectId, 'assistant', OPENING);
+    messages = readMessages(projectId);
+  }
+  return messages;
+};
 
 const now = () => new Date().toISOString();
 const send = (res, status, obj) => {
@@ -85,30 +115,37 @@ const server = createServer(async (req, res) => {
 
     // 2) 项目列表
     if (req.method === 'GET' && url.pathname === '/api/projects') {
-      const rows = db.prepare('SELECT id, name, created_at, profile_json FROM projects ORDER BY id').all();
+      const rows = db.prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects ORDER BY id').all();
       return send(res, 200, { ok: true, count: rows.length, projects: rows.map(toProjectJson) });
     }
 
-    // 3) 创建项目
+    // 3) 创建项目:自动写入 AI 开场白;如果带了第一句话,视为访谈第1个回答并追问第2问
     if (req.method === 'POST' && url.pathname === '/api/projects') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       if (!name) return send(res, 400, { ok: false, error: 'name 不能为空' });
       if (name.length > 100) return send(res, 400, { ok: false, error: 'name 最多100个字' });
+      const initial = typeof body.initialMessage === 'string' ? body.initialMessage.trim().slice(0, 2000) : '';
       const result = db
         .prepare('INSERT INTO projects (name, created_at) VALUES (?, ?)')
         .run(name, now());
+      const id = Number(result.lastInsertRowid);
+      insertMessage(id, 'assistant', OPENING);
+      if (initial) {
+        insertMessage(id, 'user', initial);
+        insertMessage(id, 'assistant', replyFor(1));
+      }
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json FROM projects WHERE id = ?')
-        .get(Number(result.lastInsertRowid));
-      return send(res, 201, { ok: true, project: toProjectJson(row) });
+        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
+        .get(id);
+      return send(res, 201, { ok: true, project: toProjectJson(row), messages: readMessages(id) });
     }
 
     // 4) 单个项目
     const single = url.pathname.match(/^\/api\/projects\/(\d+)$/);
     if (req.method === 'GET' && single) {
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json FROM projects WHERE id = ?')
+        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
         .get(Number(single[1]));
       if (!row) return send(res, 404, { ok: false, error: '项目不存在' });
       return send(res, 200, { ok: true, project: toProjectJson(row) });
@@ -127,9 +164,53 @@ const server = createServer(async (req, res) => {
       }
       db.prepare('UPDATE projects SET profile_json = ? WHERE id = ?').run(JSON.stringify(profile), id);
       const row = db
-        .prepare('SELECT id, name, created_at, profile_json FROM projects WHERE id = ?')
+        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
         .get(id);
       return send(res, 200, { ok: true, project: toProjectJson(row) });
+    }
+
+    // 6) 读某项目的全部消息(老项目自动补开场白)
+    const msgList = url.pathname.match(/^\/api\/projects\/(\d+)\/messages$/);
+    if (req.method === 'GET' && msgList) {
+      const id = Number(msgList[1]);
+      const exists = db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+      if (!exists) return send(res, 404, { ok: false, error: '项目不存在' });
+      return send(res, 200, { ok: true, messages: readMessagesWithOpening(id) });
+    }
+
+    // 7) 访谈对话:存用户回答 -> 按剧本回复 -> 第5个回答后自动整理档案+计划
+    const chat = url.pathname.match(/^\/api\/projects\/(\d+)\/chat$/);
+    if (req.method === 'POST' && chat) {
+      const id = Number(chat[1]);
+      const row = db
+        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
+        .get(id);
+      if (!row) return send(res, 404, { ok: false, error: '项目不存在' });
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const text = typeof body.text === 'string' ? body.text.trim() : '';
+      if (!text) return send(res, 400, { ok: false, error: 'text 不能为空' });
+      if (text.length > 2000) return send(res, 400, { ok: false, error: 'text 最多2000字' });
+      insertMessage(id, 'user', text);
+      const userAnswers = readMessages(id).filter((m) => m.author === 'user').map((m) => m.text);
+      let reply;
+      let done = false;
+      if (userAnswers.length <= TOTAL_ANSWERS - 1) {
+        reply = replyFor(userAnswers.length);
+      } else if (userAnswers.length === TOTAL_ANSWERS) {
+        const profile = compileProfile(userAnswers);
+        const plan = compilePlan(userAnswers);
+        db.prepare('UPDATE projects SET profile_json = ?, plan_text = ? WHERE id = ?').run(JSON.stringify(profile), plan, id);
+        reply = finalMessage(profile);
+        done = true;
+      } else {
+        reply = COMPLETED_NOTE;
+        done = true;
+      }
+      insertMessage(id, 'assistant', reply);
+      const updated = db
+        .prepare('SELECT id, name, created_at, profile_json, plan_text FROM projects WHERE id = ?')
+        .get(id);
+      return send(res, 200, { ok: true, reply: { author: 'assistant', text: reply }, done, project: toProjectJson(updated) });
     }
 
     return send(res, 404, { ok: false, error: '没有这个接口' });

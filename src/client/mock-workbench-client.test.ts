@@ -17,18 +17,20 @@ describe('MockWorkbenchClient createProject', () => {
     expect(first.initialMessage).toMatchObject({ author: 'user', text: '整理项目范围', attachments: [{ displayName: 'brief.md' }] });
   });
 
-  it('keeps project workflow data replaceable and advances tasks and artifacts through a mock turn', async () => {
+  it('访谈5问后生成档案和计划,之后不再提问', async () => {
     const client = new MockWorkbenchClient();
-    const project = await client.createProject(input({ name: '新品发布', initialMessage: '准备新品发布方案' }));
-    expect(project.project.avatar).toEqual(defaultProjectAvatar(1));
-    expect(project.agent).not.toHaveProperty('avatar');
-    expect(project.project.template).toBe('launch');
-    expect(project.tasks.map((task) => task.status)).toEqual(['completed', 'running', 'queued']);
-    expect(project.artifacts.map((artifact) => artifact.status)).toEqual(['ready', 'pending']);
-    const turn = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '继续执行', modelId: 'chatgpt' });
-    expect(turn.project?.status).toBe('completed');
-    expect(turn.tasks?.every((task) => task.status === 'completed')).toBe(true);
-    expect(turn.artifacts?.every((artifact) => artifact.status === 'ready')).toBe(true);
+    const project = await client.createProject(input({ name: '白茶店' }));
+    expect(project.messages[0].text).toMatch('项目顾问');
+    const answers = ['卖茶叶', '云南白茶', '白领', '99元', '淘宝'];
+    let last = null;
+    for (const text of answers) {
+      last = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text, modelId: 'chatgpt' });
+    }
+    expect(last?.message.text).toMatch('访谈完成');
+    expect(last?.project?.profile).toMatchObject({ productName: '云南白茶', price: '99元' });
+    expect(last?.project?.plan).toMatch('执行计划');
+    const extra = await client.sendMessage({ conversationId: project.conversation.id, agentId: project.agent.id, text: '再问', modelId: 'chatgpt' });
+    expect(extra.message.text).toMatch('已完成');
   });
 
   it('keeps an uploaded avatar when one is supplied at creation', async () => {

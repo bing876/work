@@ -33,7 +33,7 @@ import tokenRing from '../assets/prototype/icon-token-ring.svg';
 import voiceIcon from '../assets/prototype/icon-voice.svg';
 import { projectAvatarAsset } from '../assets/project-avatars';
 import { CreateProjectDialog } from './CreateProjectDialog';
-import { ProductProfileCard } from './ProductProfileCard';
+import { ProjectDossier } from './ProjectDossier';
 import type { CreateProjectInput } from '../client/workbench-client';
 
 type ShellState = { data: WorkbenchBootstrap; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
@@ -181,7 +181,7 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
         <div className="splitter" role="separator" tabIndex={state.collapsed ? -1 : 0} aria-hidden={state.collapsed} aria-orientation="vertical" aria-label="调整侧边栏宽度" aria-valuemin={250} aria-valuemax={310} aria-valuenow={sidebarWidth} onPointerDown={resizeSidebar} onKeyDown={resizeSidebarByKeyboard} onDoubleClick={() => update({ sidebarWidth: 250 })} />
 
         <section className="main-area" aria-label="工作区">
-          <Conversation messages={state.data.messages[state.conversationId] ?? []} agent={agent} project={project} tasks={state.data.tasks.filter((item) => item.projectId === project?.id)} artifacts={state.data.artifacts.filter((item) => item.projectId === project?.id)} client={client} onProfileSaved={(updated) => update({ data: { ...state.data, projects: state.data.projects.map((item) => item.id === updated.id ? updated : item) } })} />
+          <Conversation messages={state.data.messages[state.conversationId] ?? []} agent={agent} project={project} tasks={state.data.tasks.filter((item) => item.projectId === project?.id)} artifacts={state.data.artifacts.filter((item) => item.projectId === project?.id)} />
           <Composer state={state} dispatch={dispatch} client={client} conversation={conversation} selectedModel={selectedModel} />
         </section>
         {state.createProjectDialogOpen && <CreateProjectDialog onClose={() => update({ createProjectDialogOpen: false })} onCreate={onCreateProject} />}
@@ -216,10 +216,10 @@ function ContactRow({ conversation, agent, avatar, selected, onClick }: { conver
   </button>;
 }
 
-function Conversation({ messages, agent, project, tasks, artifacts, client, onProfileSaved }: { messages: Message[]; agent?: AgentSummary; project?: Project; tasks: Task[]; artifacts: Artifact[]; client: WorkbenchClient; onProfileSaved: (project: Project) => void }) {
+function Conversation({ messages, agent, project, tasks, artifacts }: { messages: Message[]; agent?: AgentSummary; project?: Project; tasks: Task[]; artifacts: Artifact[] }) {
   if (!messages.length && !project) return <section className="chat-area empty-conversation" aria-label="空白对话" />;
   return <section className="chat-area" aria-label="对话">
-    {project && <ProductProfileCard key={project.id} project={project} client={client} onSaved={onProfileSaved} />}
+    {project && <ProjectDossier key={project.id} project={project} userAnswerCount={messages.filter((item) => item.author === 'user').length} />}
     {project && <ProjectExperience project={project} tasks={tasks} artifacts={artifacts} />}
     {messages.map((message) => <MessageView key={message.id} message={message} agent={agent} />)}
   </section>;

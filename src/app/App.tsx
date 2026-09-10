@@ -15,7 +15,7 @@ const reducer = (state: State, action: Action): State => {
   }
   if (action.type === 'agent-turn' && state.data) {
     const { message, project, tasks, artifacts } = action.result;
-    return { ...state, data: { ...state.data, projects: project ? state.data.projects.map((item) => item.id === project.id ? project : item) : state.data.projects, tasks: tasks ? state.data.tasks.map((item) => tasks.find((next) => next.id === item.id) ?? item) : state.data.tasks, artifacts: artifacts ? state.data.artifacts.map((item) => artifacts.find((next) => next.id === item.id) ?? item) : state.data.artifacts, messages: { ...state.data.messages, [state.conversationId]: [...(state.data.messages[state.conversationId] ?? []), message] } } };
+    return { ...state, data: { ...state.data, projects: project ? state.data.projects.map((item) => item.id === project.id ? { ...project, avatar: item.avatar } : item) : state.data.projects, tasks: tasks ? state.data.tasks.map((item) => tasks.find((next) => next.id === item.id) ?? item) : state.data.tasks, artifacts: artifacts ? state.data.artifacts.map((item) => artifacts.find((next) => next.id === item.id) ?? item) : state.data.artifacts, messages: { ...state.data.messages, [state.conversationId]: [...(state.data.messages[state.conversationId] ?? []), message] } } };
   }
   return state;
 };

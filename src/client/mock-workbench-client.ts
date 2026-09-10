@@ -59,6 +59,19 @@ const initial: WorkbenchBootstrap = {
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
+// SCRIPT-MIRROR:与 server/interview.js 同步的演示副本(Mock 只演界面,不联网、不持久)。
+// 改问题文案或整理规则时,两边一起改。
+const MOCK_OPENING = '您好！我是您的项目顾问，请告诉我您想做什么生意？';
+const MOCK_QUESTIONS = [
+  MOCK_OPENING,
+  '您的商品或服务具体是什么？(比如:云南白茶500g/袋)',
+  '您的目标客户是谁？(比如:25-35岁办公室白领)',
+  '您的价格带大概是多少？(比如:99元/500g)',
+  '您主要在哪些渠道销售？(比如:淘宝、抖音、小红书)',
+];
+const MOCK_COMPLETED = '本次访谈已完成，项目档案和执行计划已生成，见上方「项目档案」卡。(Mock 演示数据,刷新即丢)';
+const mockClip = (value: string, length: number) => value.trim().slice(0, length);
+
 export class MockWorkbenchClient implements WorkbenchClient {
   private state = clone(initial);
   private projectSequence = 0;
@@ -66,21 +79,42 @@ export class MockWorkbenchClient implements WorkbenchClient {
   async bootstrap(): Promise<WorkbenchBootstrap> { return clone(this.state); }
   async sendMessage(input: SendMessageInput): Promise<AgentTurn> {
     const project = this.state.projects.find((item) => item.conversationId === input.conversationId);
-    if (project && project.status !== 'completed') {
-      const completedProject: Project = { ...project, status: 'completed' };
-      const tasks = this.state.tasks.map((item) => item.projectId === project.id ? { ...item, status: 'completed' as const, detail: item.status === 'completed' ? item.detail : '已由 Mock Agent 完成并汇总到交付物' } : item);
-      const artifacts = this.state.artifacts.map((item) => item.projectId === project.id ? { ...item, status: 'ready' as const } : item);
-      this.state.projects = this.state.projects.map((item) => item.id === project.id ? completedProject : item);
-      this.state.tasks = tasks;
-      this.state.artifacts = artifacts;
-      this.state.agents = this.state.agents.map((item) => item.id === project.agentId ? { ...item, status: 'ready' as const, preview: '交付物已就绪' } : item);
-      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: `已完成模拟执行：已根据“${input.text}”收束任务，发布文件已准备就绪。`, blocks: [{ type: 'text', title: 'Mock Experience', body: '此结果由 MockWorkbenchClient 确定性生成，未调用真实模型、Kernel 或 Runtime。' }] };
-      this.state.messages[input.conversationId] = [...(this.state.messages[input.conversationId] ?? []), reply];
-      return clone({ message: reply, project: completedProject, tasks: tasks.filter((item) => item.projectId === project.id), artifacts: artifacts.filter((item) => item.projectId === project.id) });
+    const incoming: Message = { id: `mock-user-${Date.now()}`, author: 'user', agentId: input.agentId, text: input.text };
+    const history = [...(this.state.messages[input.conversationId] ?? []), incoming];
+    this.state.messages[input.conversationId] = history;
+    if (!project) {
+      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: `这是由 Mock Client 返回的确定性界面响应：已收到“${input.text}”。` };
+      this.state.messages[input.conversationId] = [...history, reply];
+      return clone({ message: reply });
     }
-    const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: `这是由 Mock Client 返回的确定性界面响应：已收到“${input.text}”。`, blocks: [{ type: 'text', title: 'Mock Mode', body: `模型入口显示为 ${input.modelId}；尚未调用真实模型、Kernel 或 Runtime。` }] };
-    this.state.messages[input.conversationId] = [...(this.state.messages[input.conversationId] ?? []), reply];
-    return clone({ message: reply });
+    const answers = history.filter((item) => item.author === 'user').map((item) => item.text);
+    if (answers.length <= MOCK_QUESTIONS.length - 1) {
+      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: MOCK_QUESTIONS[answers.length] };
+      this.state.messages[input.conversationId] = [...history, reply];
+      return clone({ message: reply });
+    }
+    if (answers.length === MOCK_QUESTIONS.length) {
+      const [a1 = '', a2 = '', a3 = '', a4 = '', a5 = ''] = answers;
+      const updated: Project = {
+        ...project,
+        profile: {
+          productName: mockClip(a2, 30),
+          category: mockClip(a1, 20),
+          price: mockClip(a4, 30),
+          specs: '',
+          sellingPoints: '',
+          notes: mockClip(`访谈整理:生意「${a1}」;商品「${a2}」;客户「${a3}」;价格「${a4}」;渠道「${a5}」`, 500),
+        },
+        plan: ['【执行计划】(Mock 演示版)', `一、定位:围绕「${mockClip(a1, 30)}」,首批聚焦「${mockClip(a3, 30)}」客户。`, `二、商品:上架「${mockClip(a2, 30)}」,价格带「${mockClip(a4, 30)}」。`, `三、渠道:优先铺设「${mockClip(a5, 40)}」。`, '四、下一步:完善商品卖点与详情文案。'].join('\n'),
+      };
+      this.state.projects = this.state.projects.map((item) => item.id === project.id ? updated : item);
+      const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: `访谈完成！已为您整理出项目档案和执行计划：\n商品:${updated.profile?.productName || '—'}｜类目:${updated.profile?.category || '—'}｜价格:${updated.profile?.price || '—'}\n完整档案见上方「项目档案」卡。` };
+      this.state.messages[input.conversationId] = [...history, reply];
+      return clone({ message: reply, project: updated });
+    }
+    const reply: Message = { id: `mock-${Date.now()}`, author: 'assistant', agentId: input.agentId, text: MOCK_COMPLETED };
+    this.state.messages[input.conversationId] = [...history, reply];
+    return clone({ message: reply, project });
   }
   async createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
     const name = this.resolveProjectName(input);
@@ -95,8 +129,9 @@ export class MockWorkbenchClient implements WorkbenchClient {
       : undefined;
     const tasks = this.workflowTasks(project);
     const artifacts = this.workflowArtifacts(project);
-    const agentMessage: Message = { id: `message-${id}-agent`, author: 'assistant', agentId: id, text: launch ? '项目已进入新品发布工作流：我正在整理内容与渠道策略。发送任意补充信息或“继续执行”，即可完成剩余任务并生成发布文件。' : '项目已进入通用执行工作流：我正在建立目标、行动项与交付物。发送任意补充信息或“继续执行”，即可完成剩余任务并生成文件结果。' };
-    const messages = initialMessage ? [initialMessage, agentMessage] : [agentMessage];
+    const opening: Message = { id: `message-${id}-opening`, author: 'assistant', agentId: id, text: MOCK_OPENING };
+    const followUp: Message = { id: `message-${id}-q2`, author: 'assistant', agentId: id, text: MOCK_QUESTIONS[1] };
+    const messages = initialMessage ? [opening, initialMessage, followUp] : [opening];
     this.state.projects.push(project);
     this.state.tasks.push(...tasks);
     this.state.artifacts.push(...artifacts);
