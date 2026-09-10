@@ -232,6 +232,12 @@ const server = createServer(async (req, res) => {
       if (!userId) return send(res, 401, { ok: false, error: '未登录或登录已过期,请先登录', code: 'UNAUTHORIZED' });
     }
 
+    // 1.6) 服务信息(需登录):前端展示真实后端模型名,模型切换已下掉,不再有假入口
+    if (req.method === 'GET' && url.pathname === '/api/meta') {
+      const config = loadModelConfig();
+      return send(res, 200, { ok: true, model: config.name, modelConfigured: Boolean(config.apiKey) });
+    }
+
     // 2) 账号:发码(开发固定码)/手机码登录(自动注册)/账号登录(手机号+坐标号)/我
     if (req.method === 'POST' && url.pathname === '/api/auth/code') {
       let phone;

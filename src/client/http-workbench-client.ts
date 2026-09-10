@@ -9,7 +9,6 @@ import type {
   CreateProjectInput,
   CreateProjectResult,
   Message,
-  ModelOption,
   ProductProfile,
   Project,
   SendMessageInput,
@@ -18,7 +17,7 @@ import type {
   WorkbenchClient,
 } from './workbench-client';
 import { defaultProjectAvatar } from '../assets/project-avatars';
-import { notifyUnauthorized } from './auth';
+import { getUser, notifyUnauthorized } from './auth';
 
 interface ServerProject {
   id: number;
@@ -37,17 +36,6 @@ interface ServerMessage {
   created_at: string;
 }
 
-const MODELS: ModelOption[] = [
-  { id: 'deepseek', name: 'DeepSeek', description: 'V4 Pro', color: '#5f81ff' },
-  { id: 'zhipu', name: 'GLM', description: '5.2', color: '#3c8ff6' },
-  { id: 'chatgpt', name: 'ChatGPT', description: 'GPT-5.6', color: '#ffffff' },
-  { id: 'claude', name: 'Claude', description: 'Opus 5', color: '#d88a62' },
-  { id: 'gemini', name: 'Gemini', description: '3.1 Pro', color: '#5b9dff' },
-  { id: 'grok', name: 'Grok', description: '4.6', color: '#f5f5f5' },
-  { id: 'qwen', name: 'Qwen', description: '3.8 Max', color: '#8a68ff' },
-  { id: 'kimi', name: 'Kimi', description: 'K3', color: '#ffa83b' },
-  { id: 'hunyuan', name: '混元', description: 'Hy3', color: '#2d96ee' },
-];
 
 const isLaunch = (name: string, initialMessage: string) =>
   /发布|新品|品牌|launch/i.test(`${name}\n${initialMessage}`);
@@ -130,6 +118,14 @@ export class HttpWorkbenchClient implements WorkbenchClient {
 
   async bootstrap(): Promise<WorkbenchBootstrap> {
     const data = await this.request<{ projects: ServerProject[] }>('/api/projects');
+    // 真实模型名问后端;问不到也不挡启动
+    let serverModel = 'deepseek-chat';
+    try {
+      serverModel = (await this.request<{ model: string }>('/api/meta')).model || serverModel;
+    } catch {
+      /* 忽略,用默认名 */
+    }
+    const storedUser = getUser();
     const projects = data.projects.map((row, index) => toProject(row, index));
     const agents = projects.map(toAgent);
     const conversations = data.projects.map((row, index) => toConversation(row, projects[index]));
@@ -144,7 +140,7 @@ export class HttpWorkbenchClient implements WorkbenchClient {
       }),
     );
     return {
-      user: { name: '用户', initials: 'U' },
+      user: storedUser ? { name: storedUser.phone, initials: storedUser.phone.slice(-2) } : { name: '用户', initials: 'U' },
       projects,
       tasks: [],
       artifacts: [],
@@ -152,19 +148,19 @@ export class HttpWorkbenchClient implements WorkbenchClient {
       conversations,
       messages,
       consensus,
-      models: MODELS,
-      selectedModelId: 'chatgpt',
+      models: [{ id: 'server', name: serverModel, description: '后端配置', color: '#5f81ff' }],
+      selectedModelId: 'server',
     };
   }
 
   async createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
-    const name = input.name.trim() || input.workingFolder?.displayName || new Date().toISOString().slice(0, 10);
+    const name = input.name.trim() || new Date().toISOString().slice(0, 10);
     const data = await this.request<{ project: ServerProject; messages: ServerMessage[]; consensus: Consensus; modelError?: string }>('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, initialMessage: input.initialMessage.trim() || undefined }),
     });
-    const project = toProject(data.project, 0, input.avatar);
+    const project = toProject(data.project, Number(data.project.id) || 0);
     const agent = toAgent(project);
     const conversation = toConversation(data.project, project);
     const messages = data.messages.map((item) => toMessage(item, agent.id));

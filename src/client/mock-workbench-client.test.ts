@@ -2,19 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { MockWorkbenchClient } from './mock-workbench-client';
 import { defaultProjectAvatar } from '../assets/project-avatars';
 
-const input = (overrides = {}) => ({ name: '', workingFolder: null, initialMessage: '', attachments: [], templateEnabled: false, industryIntelligenceEnabled: true, ...overrides });
+const input = (overrides = {}) => ({ name: '', initialMessage: '', ...overrides });
 
 describe('MockWorkbenchClient createProject', () => {
-  it('uses folder then date names, keeps date names unique, and preserves the first user message context', async () => {
+  it('空名字用日期兜底并保持唯一,首条用户消息原样保留', async () => {
     const client = new MockWorkbenchClient();
-    const fromFolder = await client.createProject(input({ workingFolder: { displayName: '研究资料', mockRef: 'browser-folder:研究资料' } }));
-    expect(fromFolder.conversation.title).toBe('研究资料');
-    const first = await client.createProject(input({ initialMessage: '整理项目范围', attachments: [{ id: 'brief', displayName: 'brief.md', mimeType: 'text/markdown', size: 12 }] }));
+    const first = await client.createProject(input({ initialMessage: '整理项目范围' }));
     const second = await client.createProject(input());
     const base = new Date().toISOString().slice(0, 10);
     expect(first.conversation.title).toBe(base);
     expect(second.conversation.title).toBe(`${base} 02`);
-    expect(first.initialMessage).toMatchObject({ author: 'user', text: '整理项目范围', attachments: [{ displayName: 'brief.md' }] });
+    expect(first.initialMessage).toMatchObject({ author: 'user', text: '整理项目范围' });
   });
 
   it('阶段流转:咨询->收集->确认->执行->暂停/继续->完成', async () => {
@@ -50,11 +48,10 @@ describe('MockWorkbenchClient createProject', () => {
     expect(final.message.text).toMatch('执行完成');
   });
 
-  it('keeps an uploaded avatar when one is supplied at creation', async () => {
+  it('新项目用图库头像(上传头像入口已下掉,不再接收)', async () => {
     const client = new MockWorkbenchClient();
-    const avatar = { source: 'upload' as const, name: 'avatar.png', mimeType: 'image/png', size: 6, dataUrl: 'data:image/png;base64,YXZhdGFy' };
-    const project = await client.createProject(input({ avatar }));
-    expect(project.project.avatar).toEqual(avatar);
+    const project = await client.createProject(input({ name: '白茶店' }));
+    expect(project.project.avatar).toEqual(defaultProjectAvatar(1));
   });
 });
 

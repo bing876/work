@@ -257,12 +257,12 @@ export class MockWorkbenchClient implements WorkbenchClient {
     const name = this.resolveProjectName(input);
     const id = `mock-project-${++this.projectSequence}`;
     const launch = /发布|新品|品牌|launch/i.test(`${name}\n${input.initialMessage}`);
-    const avatar = input.avatar ?? defaultProjectAvatar(this.state.projects.length);
+    const avatar = defaultProjectAvatar(this.state.projects.length);
     const project: Project = { id, name, agentId: id, conversationId: `conv-${id}`, status: 'executing', template: launch ? 'launch' : 'general', avatar, phase: input.initialMessage ? 'collecting' : 'consulting' };
     const agent: AgentSummary = { id, name, role: '项目 Agent', initials: name.slice(0, 1) || '项', tone: 'project-avatar', status: 'working', preview: launch ? '正在生成内容与渠道策略' : '正在建立项目执行计划' };
     const conversation = { id: project.conversationId, agentId: id, title: name, preview: agent.preview, updatedAt: '刚刚' };
     const initialMessage: Message | undefined = input.initialMessage
-      ? { id: `message-${id}`, author: 'user', agentId: id, text: input.initialMessage, attachments: clone(input.attachments) }
+      ? { id: `message-${id}`, author: 'user', agentId: id, text: input.initialMessage }
       : undefined;
     const tasks = this.workflowTasks(project);
     const artifacts = this.workflowArtifacts(project);
@@ -312,7 +312,6 @@ export class MockWorkbenchClient implements WorkbenchClient {
 
   private resolveProjectName(input: CreateProjectInput): string {
     if (input.name.trim()) return input.name.trim();
-    if (input.workingFolder?.displayName) return input.workingFolder.displayName;
     const base = new Date().toISOString().slice(0, 10);
     const used = new Set(this.state.conversations.map((item) => item.title));
     if (!used.has(base)) return base;

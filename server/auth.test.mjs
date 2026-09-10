@@ -129,6 +129,13 @@ describe('账号系统', () => {
     assert.ok((await fetch(`${base}/health`)).ok); // 健康检查仍公开
   });
 
+  it('meta:登录后返回真实后端模型名', async () => {
+    const { status, json } = await req('GET', '/api/meta', undefined, tokenA);
+    assert.equal(status, 200);
+    assert.ok(typeof json.model === 'string' && json.model.length > 0);
+    assert.equal(typeof json.modelConfigured, 'boolean');
+  });
+
   it('坐标号随机分配:候选撞号自动换号(伪随机序列,确定性)', () => {
     const mem = new DatabaseSync(join(dir, 'coord.db'));
     mem.exec(USERS_DDL);

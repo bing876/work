@@ -20,14 +20,10 @@ export interface ConsensusItem { id: string; text: string; kind: 'fact' | 'decis
 export interface Consensus { version: number; goal: null | { text: string; status: string }; facts: ConsensusItem[]; suggestions: ConsensusItem[]; openQuestions: ConsensusItem[]; decisions: ConsensusItem[]; history: ConsensusItem[]; }
 export interface WorkbenchBootstrap { user: { name: string; initials: string }; projects: Project[]; tasks: Task[]; artifacts: Artifact[]; agents: AgentSummary[]; conversations: ConversationSummary[]; messages: Record<string, Message[]>; consensus: Record<string, Consensus>; models: ModelOption[]; selectedModelId: string; }
 export interface SendMessageInput { conversationId: string; agentId: string; text: string; modelId: string; }
+// 去假:后端只收 name + initialMessage,其余字段(头像/文件夹/附件/开关)一律不收,前端不再假装收集
 export interface CreateProjectInput {
-  avatar?: ProjectAvatar;
   name: string;
-  workingFolder: { displayName: string; mockRef: string } | null;
   initialMessage: string;
-  attachments: AttachmentRef[];
-  templateEnabled: boolean;
-  industryIntelligenceEnabled: boolean;
 }
 export interface CreateProjectResult { project: Project; agent: AgentSummary; conversation: ConversationSummary; messages: Message[]; tasks: Task[]; artifacts: Artifact[]; consensus?: Consensus; initialMessage?: Message; modelError?: string; }
 export interface AgentTurn { message: Message; project?: Project; tasks?: Task[]; artifacts?: Artifact[]; consensus?: Consensus; }

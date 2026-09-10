@@ -20,13 +20,16 @@ describe('Phase 0.7 project rail and sidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '退出 Agent Switcher' }));
     expect(screen.getByRole('button', { name: /春季新品发布/ })).toHaveAttribute('aria-pressed', 'true');
-    const search = screen.getByLabelText('搜索联系人');
+    const search = screen.getByLabelText('搜索项目');
     fireEvent.focus(search);
     expect(search.closest('.search-pill')).toHaveAttribute('data-state', 'focused');
     fireEvent.change(search, { target: { value: '春季' } });
     expect(search.closest('.search-pill')).toHaveAttribute('data-state', 'typing');
     fireEvent.change(search, { target: { value: '不存在的项目' } });
+    expect(screen.queryByRole('button', { name: /春季新品发布/ })).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: '春季' } });
     expect(screen.getByRole('button', { name: /春季新品发布/ })).toBeInTheDocument();
+    fireEvent.change(search, { target: { value: '不存在的项目' } });
     expect(screen.getByRole('button', { name: '清空搜索' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '清空搜索' }));
     expect(search).toHaveValue('');
@@ -96,12 +99,12 @@ describe('App 启动失败', () => {
 describe('第一列导航', () => {
   it('点收藏进知识库,点消息回到会话列表', async () => {
     render(<WorkbenchClientProvider client={new MockWorkbenchClient()}><App /></WorkbenchClientProvider>);
-    await screen.findByLabelText('搜索联系人');
+    await screen.findByLabelText('搜索项目');
     fireEvent.click(screen.getByRole('button', { name: '收藏' }));
     expect(screen.getByLabelText('知识库')).toBeInTheDocument();
-    expect(screen.queryByLabelText('搜索联系人')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('搜索项目')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '消息' }));
-    expect(screen.getByLabelText('搜索联系人')).toBeInTheDocument();
+    expect(screen.getByLabelText('搜索项目')).toBeInTheDocument();
     expect(screen.queryByLabelText('知识库')).not.toBeInTheDocument();
   });
 });

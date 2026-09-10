@@ -40,14 +40,7 @@ describe('HttpWorkbenchClient', () => {
       messages: [msg(1, 'assistant', '您好！'), msg(2, 'user', '帮我写上架文案'), msg(3, 'assistant', '第2问')],
     }));
     vi.stubGlobal('fetch', fetchMock);
-    const result = await new HttpWorkbenchClient().createProject({
-      name: '  白茶2号 ',
-      workingFolder: null,
-      initialMessage: '帮我写上架文案',
-      attachments: [],
-      templateEnabled: false,
-      industryIntelligenceEnabled: true,
-    });
+    const result = await new HttpWorkbenchClient().createProject({ name: '  白茶2号 ', initialMessage: '帮我写上架文案' });
     expect(fetchMock).toHaveBeenCalledWith('/api/projects', expect.objectContaining({ method: 'POST' }));
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ name: '白茶2号', initialMessage: '帮我写上架文案' });
     expect(result.project).toMatchObject({ id: 'srv-2', name: '白茶2号' });
@@ -58,22 +51,15 @@ describe('HttpWorkbenchClient', () => {
   it('建项目时模型失败会透传 modelError', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, project: row(9, '断网店'), messages: [msg(1, 'assistant', '您好！')], modelError: '模型调用超时' }));
     vi.stubGlobal('fetch', fetchMock);
-    const result = await new HttpWorkbenchClient().createProject({ name: '断网店', workingFolder: null, initialMessage: 'hi', attachments: [], templateEnabled: false, industryIntelligenceEnabled: true });
+    const result = await new HttpWorkbenchClient().createProject({ name: '断网店', initialMessage: 'hi' });
     expect(result.modelError).toBe('模型调用超时');
   });
 
-  it('空名字时用文件夹名兜底', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, project: row(3, '研究资料'), messages: [msg(1, 'assistant', '您好！')] }));
+  it('空名字时用当天日期兜底', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, project: row(3, '兜底'), messages: [msg(1, 'assistant', '您好！')] }));
     vi.stubGlobal('fetch', fetchMock);
-    await new HttpWorkbenchClient().createProject({
-      name: '   ',
-      workingFolder: { displayName: '研究资料', mockRef: 'browser-folder:研究资料' },
-      initialMessage: '',
-      attachments: [],
-      templateEnabled: false,
-      industryIntelligenceEnabled: true,
-    });
-    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ name: '研究资料' });
+    await new HttpWorkbenchClient().createProject({ name: '   ', initialMessage: '' });
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ name: new Date().toISOString().slice(0, 10) });
   });
 
   it('后端报错或连不上时抛出人话错误', async () => {
