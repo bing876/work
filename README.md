@@ -1,34 +1,29 @@
-# XYZ Workbench Frontend
+# Welcome to your Lovable project
 
-XYZ Workbench vnext 前端独立仓库（React 19 + TypeScript + Vite + Vitest + Playwright）。
+This project was built with [Lovable](https://lovable.dev).
 
-从 `DIMSPACE-XYZ-Agent-OS` 主仓库 `apps/workbench-vnext/frontend/` 迁移，仅包含前端代码，不含 kernel / runtime / services / backend。
+## Build with Lovable
 
-## 开发
+Open your project in the [Lovable editor](https://lovable.dev) and keep building.
 
-```bash
-npm install
-npm run dev        # 启动开发服务器
+- **Ship faster**: describe what you want to build and Lovable handles the code.
+- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
+- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
+
+## Development
+
+Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+
+```sh
+git clone <this-repository-url>
+cd <repository-name>
+npm i
+npm run dev
 ```
 
-## 构建
+## Built with
 
-```bash
-npm run build      # tsc --noEmit + vite build
-```
-
-## 测试
-
-```bash
-npm test           # Vitest 单元测试
-npm run test:e2e   # Playwright e2e 测试
-```
-
-## 目录结构
-
-```
-src/          应用源码（app / client / features / assets / test）
-e2e/          Playwright e2e 测试
-scripts/      开发辅助脚本（视觉几何校验等）
-index.html    Vite 入口
-```
+- TanStack Start
+- TypeScript
+- React
+- Tailwind CSS
