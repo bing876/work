@@ -33,6 +33,7 @@ import tokenRing from '../assets/prototype/icon-token-ring.svg';
 import voiceIcon from '../assets/prototype/icon-voice.svg';
 import { projectAvatarAsset } from '../assets/project-avatars';
 import { CreateProjectDialog } from './CreateProjectDialog';
+import { ProjectOffice } from './ProjectOffice';
 import type { CreateProjectInput } from '../client/workbench-client';
 
 type ShellState = { data: WorkbenchBootstrap; section: RailSection; conversationId: string; search: string; searchFocused: boolean; sidebarWidth: number; collapsed: boolean; toolOpen: boolean; modelOpen: boolean; createProjectDialogOpen: boolean; settingsOpen: boolean; };
@@ -141,12 +142,12 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
         aria-label="XYZ Workbench vNext"
       >
         <nav className="rail" aria-label="主导航">
-          <button className="menu-btn" type="button" aria-label={state.collapsed ? '退出 Agent Switcher' : '进入 Agent Switcher'} aria-pressed={state.collapsed} onClick={() => setSwitcher(!state.collapsed)}>
+          <button className="menu-btn" type="button" aria-label={state.collapsed ? '返回会话模式' : '进入 AI 工作区'} aria-pressed={state.collapsed} onClick={() => setSwitcher(!state.collapsed)}>
             <span className="rail-user-avatar">{state.data.user.initials}</span>
           </button>
           {showTabs && <div className="rail-tabs" aria-hidden={state.collapsed}>
             {railItems.map(([label, asset, selectedAsset], index) => (
-              <button key={label} className={`tab tab-${['msg', 'contact', 'fav', 'file', 'moments'][index]} ${index === 0 ? 'selected' : ''}`} type="button" aria-label={label} tabIndex={state.collapsed ? -1 : 0}>
+              <button key={label} className={`tab tab-${['msg', 'contact', 'fav', 'file', 'moments'][index]} ${index === 0 ? 'selected' : ''}`} type="button" aria-label={index === 0 ? label : '预留功能入口'} title={index === 0 ? '会话' : '预留功能，暂未开放'} disabled={index !== 0} tabIndex={state.collapsed ? -1 : 0}>
                 <img className="tab-icon-off" src={asset} alt="" />
                 {selectedAsset && <img className="tab-icon-on" src={selectedAsset} alt="" />}
               </button>
@@ -162,7 +163,7 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
           {!state.collapsed && <button className="hamburger-btn" type="button" aria-label="设置" onClick={() => update({ settingsOpen: true })}><span /><span /><span /></button>}
         </nav>
 
-        <aside className="sidebar" aria-label="上下文和会话">
+        <aside className="sidebar" aria-label="上下文和会话" inert={state.collapsed}>
           <div className="sidebar-tools">
             <label className="search-pill" data-state={searchState(state.search, state.searchFocused)}>
               <img className="search-icon" src={searchIcon} alt="" />
@@ -180,8 +181,11 @@ export function AppShell({ state, dispatch, client, selectedConversation, onCrea
         <div className="splitter" role="separator" tabIndex={state.collapsed ? -1 : 0} aria-hidden={state.collapsed} aria-orientation="vertical" aria-label="调整侧边栏宽度" aria-valuemin={250} aria-valuemax={310} aria-valuenow={sidebarWidth} onPointerDown={resizeSidebar} onKeyDown={resizeSidebarByKeyboard} onDoubleClick={() => update({ sidebarWidth: 250 })} />
 
         <section className="main-area" aria-label="工作区">
+          {state.collapsed && project ? <ProjectOffice key={project.id} project={project} tasks={state.data.tasks.filter(item => item.projectId === project.id)} onReturn={() => setSwitcher(false)} /> : null}
+          <div hidden={state.collapsed && !!project}>
           <Conversation messages={state.data.messages[state.conversationId] ?? []} agent={agent} project={project} tasks={state.data.tasks.filter((item) => item.projectId === project?.id)} artifacts={state.data.artifacts.filter((item) => item.projectId === project?.id)} />
           <Composer state={state} dispatch={dispatch} client={client} conversation={conversation} selectedModel={selectedModel} />
+          </div>
         </section>
         {state.createProjectDialogOpen && <CreateProjectDialog onClose={() => update({ createProjectDialogOpen: false })} onCreate={onCreateProject} />}
       </section>

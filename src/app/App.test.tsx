@@ -10,14 +10,14 @@ describe('Phase 0.7 project rail and sidebar', () => {
     expect((await screen.findAllByText('春季新品发布')).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '消息' }).querySelector('.tab-icon-on')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /春季新品发布/ })).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(screen.getByRole('button', { name: '进入 Agent Switcher' }));
+    fireEvent.click(screen.getByRole('button', { name: '进入 AI 工作区' }));
     const project = screen.getByRole('button', { name: '春季新品发布' });
     expect(project).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('button', { name: '创建项目' }));
     expect(screen.getByRole('dialog', { name: '创建项目' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '关闭创建项目' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '退出 Agent Switcher' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回会话模式' }));
     expect(screen.getByRole('button', { name: /春季新品发布/ })).toHaveAttribute('aria-pressed', 'true');
     const search = screen.getByLabelText('搜索联系人');
     fireEvent.focus(search);
@@ -46,15 +46,15 @@ describe('Phase 0.7 project rail and sidebar', () => {
     expect(splitter).toHaveAttribute('aria-valuenow', '250');
     fireEvent(splitter, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 300 }));
     fireEvent(window, new MouseEvent('pointermove', { bubbles: true, clientX: 190 }));
-    expect(screen.getByRole('button', { name: '退出 Agent Switcher' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '退出 Agent Switcher' }));
+    expect(screen.getByRole('button', { name: '返回会话模式' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '返回会话模式' }));
     expect(screen.getByRole('separator', { name: '调整侧边栏宽度' })).toHaveAttribute('aria-valuenow', '250');
   });
 
   it('appends newly created project avatars in creation order and keeps the newest project selected', async () => {
     render(<WorkbenchClientProvider client={new MockWorkbenchClient()}><App /></WorkbenchClientProvider>);
-    await screen.findByRole('button', { name: '进入 Agent Switcher' });
-    fireEvent.click(screen.getByRole('button', { name: '进入 Agent Switcher' }));
+    await screen.findByRole('button', { name: '进入 AI 工作区' });
+    fireEvent.click(screen.getByRole('button', { name: '进入 AI 工作区' }));
 
     for (const name of ['项目一', '项目二']) {
       fireEvent.click(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('button', { name: '创建项目' }));
@@ -68,7 +68,7 @@ describe('Phase 0.7 project rail and sidebar', () => {
     expect(screen.getByRole('button', { name: '项目二' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: '项目一' }));
     expect(screen.getByRole('button', { name: '项目一' })).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(screen.getByRole('button', { name: '退出 Agent Switcher' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回会话模式' }));
     const sidebarProjects = within(screen.getByLabelText('上下文和会话')).getAllByRole('button').filter((button) => button.classList.contains('contact-item')).slice(-3).map((button) => button.textContent);
     expect(sidebarProjects).toEqual([expect.stringContaining('春季新品发布'), expect.stringContaining('项目一'), expect.stringContaining('项目二')]);
     expect(screen.getByRole('button', { name: /项目一/ })).toHaveAttribute('aria-pressed', 'true');
